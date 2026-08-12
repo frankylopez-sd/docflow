@@ -1,0 +1,39 @@
+{
+  "name": "docflow",
+  "version": "1.0.0",
+  "description": "Document automation platform: Monday.com -> Adobe PDF Services -> Adobe Sign -> Azure Blob archive",
+  "main": "src/functions/health/index.js",
+  "scripts": {
+    "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
+    "start": "func start",
+    "build": "npm install && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.4.0",
+    "@azure/storage-blob": "^12.24.0",
+    "applicationinsights": "^2.9.5",
+    "axios": "^1.7.4",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "setupFiles": [
+      "<rootDir>/src/tests/setup.js"
+    ],
+    "collectCoverageFrom": [
+      "src/lib/**/*.js",
+      "src/functions/**/*.js"
+    ]
+  }
+}
