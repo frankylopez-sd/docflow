@@ -90,6 +90,37 @@ async function processArchive(msg) {
       });
     }
 
+    // 5. trigger ADP user creation (non-blocking)
+    try {
+      const row = msg.employeeData || await monday.readRow(boardId, itemId);
+      const adpPayload = {
+        firstName: row.columns[cfg.monday.columns.firstName] || '',
+        lastName: row.columns[cfg.monday.columns.lastName] || '',
+        hireDate: row.columns[cfg.monday.columns.hireDate] || '',
+        jobTitle: row.columns[cfg.monday.columns.jobTitle] || '',
+        department: row.columns[cfg.monday.columns.department] || '',
+        workLocation: row.columns[cfg.monday.columns.workLocation] || '',
+        residenceState: row.columns[cfg.monday.columns.residenceState] || '',
+        managerName: row.columns[cfg.monday.columns.manager] || '',
+        payRate: row.columns[cfg.monday.columns.payRate] || 0,
+        compensationType: row.columns[cfg.monday.columns.compType] || 'Hourly',
+        timeZone: row.columns[cfg.monday.columns.timeZone] || 'MST',
+        workState: row.columns[cfg.monday.columns.workState] || '',
+        preferredName: row.columns[cfg.monday.columns.preferredName] || '',
+        personalEmail: row.columns[cfg.monday.columns.personalEmail] || '',
+      };
+
+      // Fire async ADP call (don't wait for response)
+      fetch(`${cfg.adpBaseUrl || 'https://api.adp.com'}/hr/v2/workers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(adpPayload),
+      }).catch(err => logger.error('adp-user-create-async-failed', err, { itemId }));
+    } catch (adpErr) {
+      logger.error('adp-trigger-failed', adpErr, { itemId });
+      // Don't fail the main flow if ADP creation fails
+    }
+
     logger.event('archive-stage-complete', { agreementId, itemId, key, archiveItemId });
     return { itemId, key, url: permanentUrl, sasUrl: uploaded.sasUrl, archiveItemId };
   } catch (err) {
