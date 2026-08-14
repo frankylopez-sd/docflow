@@ -1,8 +1,8 @@
-name: Deploy to Azure
+name: Deploy DocFlow to Azure
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ master, main ]
   workflow_dispatch:
 
 jobs:
@@ -10,13 +10,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      - run: npm ci && npm test
-      - run: zip -r deploy.zip . -x "node_modules/*" ".git/*" ".github/*"
-      - uses: Azure/functions-action@v1
+          node-version: '24'
+      
+      - name: Install & Test
+        run: npm ci && npm test
+      
+      - name: Build package
+        run: |
+          zip -r deploy.zip . -x "node_modules/*" ".git/*" ".github/*"
+          
+      - name: Deploy to Azure
+        uses: azure/login@v1
         with:
-          app-name: doc-automation-func
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-          package: deploy.zip
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Deploy Functions
+        run: |
+          az functionapp deployment source config-zip \
+            --resource-group doc-automation-rg \
+            --name doc-automation-func \
+            --src-path deploy.zip
+
+      - name: Verify Health
+        run: |
+          for i in {1..60}; do
+            STATUS=$(curl -s -w "%{http_code}" -o /dev/null -k https://doc-automation-func.azurewebsites.net/api/health)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "⏳ Functions still loading"
