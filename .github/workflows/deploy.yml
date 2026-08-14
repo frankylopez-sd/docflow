@@ -19,9 +19,11 @@ jobs:
       - name: Install & Test
         run: npm ci && npm test
       
-      - name: Deploy
+      - name: Deploy with Publish Profile
         uses: Azure/functions-action@v1
         with:
           app-name: 'doc-automation-func'
           slot-name: 'production'
+          package: '.'
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          respect-funcignore: false
