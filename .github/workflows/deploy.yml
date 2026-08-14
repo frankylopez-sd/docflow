@@ -9,22 +9,14 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
-      
-      - name: Install & Test
-        run: npm ci && npm test
-      
-      - name: Zip artifact for deployment
-        run: zip -r deploy.zip . -x "node_modules/*" ".git/*"
-      
-      - name: Deploy to Azure
-        uses: azure/webapps-deploy@v2
+      - run: npm ci && npm test
+      - run: zip -r deploy.zip . -x "node_modules/*" ".git/*" ".github/*"
+      - uses: azure/webapps-deploy@v3
         with:
-          app-name: 'doc-automation-func'
+          app-name: doc-automation-func
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
           package: deploy.zip
