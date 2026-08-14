@@ -1,0 +1,39 @@
+name: Diagnose Credentials
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Publish Profile Secret
+        run: |
+          if [ -z "${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}" ]; then
+            echo "❌ AZURE_FUNCTIONAPP_PUBLISH_PROFILE is EMPTY"
+            exit 1
+          else
+            echo "✅ Secret exists"
+            PROFILE="${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}"
+            echo "Length: ${#PROFILE}"
+            echo "First 50 chars: ${PROFILE:0:50}"
+
+            if echo "$PROFILE" | grep -q "publishProfile"; then
+              echo "✅ Looks like XML"
+            elif echo "$PROFILE" | grep -q "userName"; then
+              echo "✅ Looks like JSON"
+            else
+              echo "❓ Unknown format"
+            fi
+          fi
+
+      - name: Check AZURE_CREDENTIALS Secret
+        run: |
+          if [ -z "${{ secrets.AZURE_CREDENTIALS }}" ]; then
+            echo "❌ AZURE_CREDENTIALS is EMPTY"
+          else
+            echo "✅ AZURE_CREDENTIALS exists"
+            CREDS="${{ secrets.AZURE_CREDENTIALS }}"
+            echo "Length: ${#CREDS}"
+            echo "Has clientId: $(echo "$CREDS" | grep -c 'clientId')"
+          fi
