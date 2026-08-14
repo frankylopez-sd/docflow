@@ -15,7 +15,7 @@ jobs:
           node-version: '18'
       - run: npm ci && npm test
       - run: zip -r deploy.zip . -x "node_modules/*" ".git/*" ".github/*"
-      - uses: azure/webapps-deploy@v3
+      - uses: Azure/functions-action@v1
         with:
           app-name: doc-automation-func
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
