@@ -19,11 +19,12 @@ jobs:
       - name: Install & Test
         run: npm ci && npm test
       
-      - name: Deploy with Publish Profile
-        uses: Azure/functions-action@v1
+      - name: Zip artifact for deployment
+        run: zip -r deploy.zip . -x "node_modules/*" ".git/*"
+      
+      - name: Deploy to Azure
+        uses: azure/webapps-deploy@v2
         with:
           app-name: 'doc-automation-func'
-          slot-name: 'production'
-          package: '.'
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-          respect-funcignore: false
+          package: deploy.zip
