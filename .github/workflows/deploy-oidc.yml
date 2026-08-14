@@ -1,0 +1,65 @@
+name: Deploy with OIDC
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get Publish Profile
+        id: pubprofile
+        run: |
+          PROFILE=$(az functionapp deployment list-publishing-profiles \
+            --name doc-automation-func \
+            --resource-group doc-automation-rg \
+            --query "[0]" \
+            --output json)
+
+          echo "profile=$(echo $PROFILE | base64 -w 0)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install & Test
+        run: npm ci && npm test
+
+      - name: Build Package
+        run: zip -r deploy.zip . -x "node_modules/*" ".git/*" ".github/*"
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: doc-automation-func
+          package: deploy.zip
+          publish-profile: ${{ steps.pubprofile.outputs.profile }}
+
+      - name: Health Check
+        run: |
+          for i in {1..60}; do
+            if curl -s -k https://doc-automation-func.azurewebsites.net/api/health | grep -q "healthy\|OK"; then
+              echo "✅ App is healthy"
+              exit 0
+            fi
+            echo "Waiting... $i/60"
+            sleep 3
+          done
+          echo "❌ Timeout"
+          exit 1

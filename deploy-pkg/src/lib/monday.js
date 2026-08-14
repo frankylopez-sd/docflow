@@ -1,0 +1,268 @@
+'use strict';
+/**
+ * Monday.com GraphQL client (API v2). All calls go through _gql(), which
+ * applies the shared rate limiter (10/sec default) + 3x exponential-backoff
+ * retry, and surfaces GraphQL errors as real errors.
+ */
+
+const axios = require('axios');
+const config = require('./config');
+const logger = require('./logger');
+const { retry, RateLimiter } = require('./util');
+
+let _rateLimiter = null;
+
+function _limiter() {
+  if (!_rateLimiter) {
+    const cfg = config.load();
+    _rateLimiter = new RateLimiter(cfg.monday.rateLimitPerSec, 1000, 'monday');
+  }
+  return _rateLimiter;
+}
+
+function _resetState() {
+  _rateLimiter = null;
+}
+
+async function _gql(query, variables = {}, label = 'monday-query') {
+  const cfg = config.load();
+  await _limiter().acquire();
+  return retry(async () => {
+    const res = await axios.post(
+      cfg.monday.apiUrl,
+      { query, variables },
+      {
+        headers: {
+          Authorization: cfg.monday.token,
+          'Content-Type': 'application/json',
+          'API-Version': '2024-10',
+        },
+        timeout: 30000,
+      }
+    );
+    if (res.data.errors && res.data.errors.length) {
+      const msg = res.data.errors.map((e) => e.message).join('; ');
+      const err = new Error(`Monday GraphQL error: ${msg}`);
+      // Complexity/rate errors are transient — retry them.
+      err.transient = /complexity|rate limit|budget/i.test(msg);
+      throw err;
+    }
+    return res.data.data;
+  }, { retries: 3, label });
+}
+
+function _parseColumnValue(cv) {
+  // Prefer human text; fall back to parsed JSON value.
+  if (cv.text != null && cv.text !== '') return cv.text;
+  if (cv.value) {
+    try { return JSON.parse(cv.value); } catch (_) { return cv.value; }
+  }
+  return null;
+}
+
+/**
+ * Read one item with all column values.
+ * @returns {Promise<Object>} {itemId, name, columns:{colId:value}, byTitle:{title:value}}
+ */
+async function readRow(boardId, itemId) {
+  const query = `
+    query ($itemId: [ID!]) {
+      items (ids: $itemId) {
+        id
+        name
+        board { id }
+        column_values { id text value column { title } }
+      }
+    }`;
+  const data = await _gql(query, { itemId: [String(itemId)] }, 'monday-read-row');
+  const item = data.items && data.items[0];
+  if (!item) throw new Error(`Monday item ${itemId} not found on board ${boardId}`);
+
+  const columns = {};
+  const byTitle = {};
+  for (const cv of item.column_values || []) {
+    const v = _parseColumnValue(cv);
+    columns[cv.id] = v;
+    if (cv.column && cv.column.title) byTitle[cv.column.title] = v;
+  }
+  return { itemId: item.id, boardId: item.board ? item.board.id : boardId, name: item.name, columns, byTitle };
+}
+
+/**
+ * Read the template catalog board.
+ * @returns {Promise<Array>} [{itemId, templateName, adobeTemplateId, dataFields, signers}]
+ */
+async function readTemplates(boardId) {
+  const cfg = config.load();
+  const id = boardId || cfg.monday.templateCatalogId;
+  const query = `
+    query ($boardId: [ID!]) {
+      boards (ids: $boardId) {
+        items_page (limit: 100) {
+          items {
+            id
+            name
+            column_values { id text value column { title } }
+          }
+        }
+      }
+    }`;
+  const data = await _gql(query, { boardId: [String(id)] }, 'monday-read-templates');
+  const board = data.boards && data.boards[0];
+  if (!board) throw new Error(`Monday template catalog board ${id} not found`);
+
+  return (board.items_page.items || []).map((item) => {
+    const byTitle = {};
+    for (const cv of item.column_values || []) {
+      if (cv.column && cv.column.title) byTitle[cv.column.title] = _parseColumnValue(cv);
+    }
+    let dataFields = byTitle['Data Fields'] || byTitle['dataFields'] || [];
+    if (typeof dataFields === 'string') {
+      dataFields = dataFields.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    let signers = byTitle['Signers'] || byTitle['signers'] || [];
+    if (typeof signers === 'string') {
+      signers = signers.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return {
+      itemId: item.id,
+      templateName: item.name,
+      adobeTemplateId: byTitle['Adobe Template ID'] || byTitle['adobeTemplateId'] || null,
+      dataFields,
+      signers,
+    };
+  });
+}
+
+/**
+ * Write status + tracking columns back to an item, then read back to verify.
+ * @param {Object} values {status, agreementId, pdfUrl, signedPdfUrl, signerDetails}
+ */
+async function updateStatus(boardId, itemId, values, opts = {}) {
+  const cfg = config.load();
+  const cols = cfg.monday.columns;
+  const columnValues = {};
+
+  if (values.status != null) columnValues[cols.status] = { label: values.status };
+  if (values.agreementId != null) columnValues[cols.agreementId] = values.agreementId;
+  if (values.pdfUrl != null) columnValues[cols.pdfUrl] = { url: values.pdfUrl, text: values.pdfLinkText || 'PDF' };
+  if (values.signedPdfUrl != null) columnValues[cols.signedPdfUrl] = { url: values.signedPdfUrl, text: 'Signed PDF' };
+  if (values.signerDetails != null) {
+    columnValues[cols.signerDetails] = {
+      text: typeof values.signerDetails === 'string' ? values.signerDetails : JSON.stringify(values.signerDetails),
+    };
+  }
+  // Always stamp last-touched date.
+  columnValues[cols.timestamp] = { date: new Date().toISOString().slice(0, 10) };
+
+  const mutation = `
+    mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues) {
+        id
+      }
+    }`;
+  const data = await retry(
+    () => _gql(mutation, {
+      boardId: String(boardId),
+      itemId: String(itemId),
+      columnValues: JSON.stringify(columnValues),
+    }, 'monday-update-status'),
+    { retries: 2, label: 'monday-update-status-outer', shouldRetry: () => true }
+  );
+
+  if (!data.change_multiple_column_values || !data.change_multiple_column_values.id) {
+    throw new Error(`Monday updateStatus: mutation returned no id for item ${itemId}`);
+  }
+
+  // Read-back verification (skippable for non-critical writes).
+  if (opts.verify !== false && values.status != null) {
+    const row = await readRow(boardId, itemId);
+    const written = row.columns[cols.status];
+    const writtenLabel = written && written.label ? written.label : written;
+    if (writtenLabel !== values.status) {
+      logger.warn('monday-status-verify-mismatch', {
+        itemId, expected: values.status, actual: JSON.stringify(written),
+      });
+    }
+  }
+
+  logger.event('monday-status-updated', { boardId, itemId, status: values.status || '(cols only)' });
+  return { success: true, itemId: data.change_multiple_column_values.id };
+}
+
+/**
+ * Create a row on the archive board.
+ * @param {Object} row {employee, docType, signedDate, signers, pdfLink, agreementId}
+ * @returns {Promise<string>} new itemId
+ */
+async function createArchiveRow(boardId, row) {
+  const cfg = config.load();
+  const id = boardId || cfg.monday.archiveBoardId;
+  if (!id) throw new Error('createArchiveRow: no archive board configured (MONDAY_ARCHIVE_BOARD_ID)');
+
+  const cols = cfg.monday.columns;
+  const columnValues = {
+    [cols.agreementId]: row.agreementId || '',
+    [cols.signedPdfUrl]: row.pdfLink ? { url: row.pdfLink, text: 'Signed PDF' } : undefined,
+    [cols.signerDetails]: row.signers
+      ? { text: typeof row.signers === 'string' ? row.signers : JSON.stringify(row.signers) }
+      : undefined,
+    [cols.timestamp]: { date: (row.signedDate || new Date().toISOString()).slice(0, 10) },
+  };
+  Object.keys(columnValues).forEach((k) => columnValues[k] === undefined && delete columnValues[k]);
+
+  const mutation = `
+    mutation ($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
+      create_item (board_id: $boardId, item_name: $itemName, column_values: $columnValues) {
+        id
+      }
+    }`;
+  const itemName = `${row.employee || 'Unknown'} — ${row.docType || 'Document'}`;
+  const data = await _gql(mutation, {
+    boardId: String(id),
+    itemName,
+    columnValues: JSON.stringify(columnValues),
+  }, 'monday-create-archive-row');
+
+  if (!data.create_item || !data.create_item.id) {
+    throw new Error('Monday createArchiveRow: create_item returned no id');
+  }
+  logger.event('monday-archive-row-created', { boardId: id, itemId: data.create_item.id });
+  return data.create_item.id;
+}
+
+/**
+ * Batch several item reads into one query (rate-limit friendly).
+ * @returns {Promise<Array>} rows in the same shape as readRow
+ */
+async function readRows(boardId, itemIds) {
+  const query = `
+    query ($itemIds: [ID!]) {
+      items (ids: $itemIds) {
+        id
+        name
+        column_values { id text value column { title } }
+      }
+    }`;
+  const data = await _gql(query, { itemIds: itemIds.map(String) }, 'monday-read-rows-batch');
+  return (data.items || []).map((item) => {
+    const columns = {};
+    const byTitle = {};
+    for (const cv of item.column_values || []) {
+      const v = _parseColumnValue(cv);
+      columns[cv.id] = v;
+      if (cv.column && cv.column.title) byTitle[cv.column.title] = v;
+    }
+    return { itemId: item.id, boardId, name: item.name, columns, byTitle };
+  });
+}
+
+module.exports = {
+  readRow,
+  readRows,
+  readTemplates,
+  updateStatus,
+  createArchiveRow,
+  _gql,
+  _resetState,
+};

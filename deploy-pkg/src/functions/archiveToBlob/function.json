@@ -1,0 +1,18 @@
+{
+  "bindings": [
+    {
+      "type": "queueTrigger",
+      "direction": "in",
+      "name": "message",
+      "queueName": "docflow-archive",
+      "connection": "AzureWebJobsStorage"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "poisonRetryQueue",
+      "queueName": "docflow-archive-retry",
+      "connection": "AzureWebJobsStorage"
+    }
+  ]
+}

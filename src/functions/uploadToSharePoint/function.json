@@ -1,0 +1,11 @@
+{
+  "bindings": [
+    {
+      "type": "queueTrigger",
+      "direction": "in",
+      "name": "message",
+      "queueName": "sharepoint-upload-queue",
+      "connection": "AzureWebJobsStorage"
+    }
+  ]
+}

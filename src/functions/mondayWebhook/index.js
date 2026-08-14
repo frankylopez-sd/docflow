@@ -4,115 +4,272 @@
  * Validates the signed Authorization JWT, answers Monday's challenge
  * handshake, and enqueues async processing (returns 200 immediately —
  * the docflow-generate queue does the heavy lifting).
+ *
+ * Error handling strategy:
+ * - 401: Signature/JWT validation failures (non-retryable security issues)
+ * - 422: Data validation warnings (queued anyway; PDF gen does full validation)
+ * - 503: Queue submission failures (Azure will retry based on max delivery attempts)
+ * - 500: Unexpected internal errors
+ * - 429: Queue rate limiting (intentional back-off)
  */
 
-const crypto = require('crypto');
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
-
-function _b64urlDecode(str) {
-  return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-}
+const queue = require('../../lib/queue');
+const { WebhookError, validateSignature, validateHireData, queueErrorToWebhookError } = require('../../lib/webhookErrors');
 
 /**
- * Minimal HS256 JWT verification (Monday signs webhook Authorization headers
- * with the app signing secret). No jsonwebtoken dependency needed.
+ * Core webhook handler.
+ * Returns structured result with HTTP status, response body, and queue message.
+ *
+ * @param {Object} req - Express-like request object
+ * @param {Object} mondayRow - Optional pre-fetched Monday row (for data validation)
+ * @returns {{
+ *   status: number,
+ *   body: Object,
+ *   queueMessage: Object|null,
+ *   retryAfter: number|undefined,
+ *   warnings: string[]
+ * }}
  */
-function verifySignature(authHeader, secret) {
-  if (!secret) return { valid: true, reason: 'no-secret-configured' };
-  if (!authHeader) return { valid: false, reason: 'missing-authorization-header' };
-
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  const parts = token.split('.');
-  if (parts.length !== 3) return { valid: false, reason: 'malformed-jwt' };
-
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(`${parts[0]}.${parts[1]}`)
-    .digest();
-  const provided = _b64urlDecode(parts[2]);
-  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) {
-    return { valid: false, reason: 'bad-signature' };
-  }
-
-  try {
-    const payload = JSON.parse(_b64urlDecode(parts[1]).toString('utf8'));
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      return { valid: false, reason: 'token-expired' };
-    }
-  } catch (_) {
-    return { valid: false, reason: 'bad-payload' };
-  }
-  return { valid: true };
-}
-
-/**
- * Core handler (exported for tests / integration flow).
- * @returns {{status:number, body:Object, queueMessage:Object|null}}
- */
-async function handleWebhook(req) {
+async function handleWebhook(req, mondayRow = null) {
   const cfg = config.load();
   const body = req.body || {};
+  const warnings = [];
 
-  // Monday URL-verification handshake: echo the challenge.
+  // Monday URL-verification handshake: echo the challenge (standard webhook pattern)
   if (body.challenge) {
-    return { status: 200, body: { challenge: body.challenge }, queueMessage: null };
+    return {
+      status: 200,
+      body: { challenge: body.challenge },
+      queueMessage: null,
+      warnings: [],
+    };
   }
 
+  // Validate webhook signature (401 if fails)
   const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || null;
-  const sig = verifySignature(auth, cfg.monday.signingSecret);
-  if (!sig.valid) {
-    logger.warn('monday-webhook-rejected', { reason: sig.reason });
-    return { status: 401, body: { error: 'invalid signature' }, queueMessage: null };
+  let claims;
+  try {
+    const result = validateSignature(auth, cfg.monday.signingSecret);
+    claims = result.claims;
+  } catch (err) {
+    if (err instanceof WebhookError) {
+      err.log({ requestPath: req.path || '/api/mondayWebhook' });
+      return {
+        status: err.response.status,
+        body: err.response.body,
+        queueMessage: null,
+        warnings: [],
+      };
+    }
+    throw err;
   }
 
+  // Rate limit check: reject if queue is overloaded (>threshold pending)
+  try {
+    const queueName = 'docflow-generate';
+    const { overloaded, depth } = await queue.isOverloaded(
+      queueName,
+      cfg.webhookRateLimitThreshold
+    );
+    if (overloaded) {
+      logger.warn('monday-webhook-rate-limited', {
+        queueDepth: depth,
+        threshold: cfg.webhookRateLimitThreshold,
+      });
+      return {
+        status: 429,
+        body: {
+          error: 'service temporarily overloaded',
+          queueDepth: depth,
+          threshold: cfg.webhookRateLimitThreshold,
+        },
+        queueMessage: null,
+        retryAfter: 60,
+        warnings: [],
+      };
+    }
+  } catch (err) {
+    // Log but don't fail on rate limit check errors
+    logger.warn('monday-webhook-rate-limit-check-failed', {
+      error: err.message,
+      note: 'Request proceeding despite rate limit check failure',
+    });
+  }
+
+  // Parse event and extract item ID
   const event = body.event || {};
   const boardId = event.boardId || cfg.monday.onboardingBoardId;
   const itemId = event.pulseId || event.itemId;
+
+  // Silently ignore events with no item ID (malformed Monday event)
   if (!itemId) {
-    logger.warn('monday-webhook-no-item', { eventType: event.type });
-    return { status: 200, body: { ignored: true, reason: 'no itemId' }, queueMessage: null };
+    logger.warn('monday-webhook-no-item', { eventType: event.type, boardId });
+    return {
+      status: 200,
+      body: { ignored: true, reason: 'no itemId', eventType: event.type },
+      queueMessage: null,
+      warnings: [],
+    };
   }
 
-  // Only react to the trigger checkbox being CHECKED.
+  // Only react to the trigger checkbox being CHECKED
   const isColumnEvent = event.type === 'update_column_value' || event.type === 'change_column_value';
   const isTriggerColumn = !event.columnId || event.columnId === cfg.monday.columns.trigger;
   const checked = event.value && (event.value.checked === true || event.value.checked === 'true');
+
   if (isColumnEvent && (!isTriggerColumn || !checked)) {
-    return { status: 200, body: { ignored: true, reason: 'not trigger checkbox checked' }, queueMessage: null };
+    logger.debug('monday-webhook-ignored', {
+      itemId,
+      eventType: event.type,
+      columnId: event.columnId,
+      triggerColumn: cfg.monday.columns.trigger,
+      isCheckbox: event.type === 'update_column_value' || event.type === 'change_column_value',
+      checked: checked ? 'true' : 'false',
+    });
+    return {
+      status: 200,
+      body: {
+        ignored: true,
+        reason: isColumnEvent ? 'not trigger checkbox checked' : 'not a column event',
+      },
+      queueMessage: null,
+      warnings: [],
+    };
   }
 
+  // Optionally validate hire data before queuing (422 if incomplete, but still queue)
+  if (mondayRow && cfg.monday.validateDataBeforeQueue) {
+    const dataValidation = validateHireData(mondayRow, cfg.monday.columns);
+    if (!dataValidation.allValid) {
+      warnings.push(...dataValidation.warnings);
+      logger.warn('monday-webhook-incomplete-data', {
+        itemId,
+        warnings: dataValidation.warnings,
+        note: 'Message still queued; PDF generation will perform full validation',
+      });
+      // Return 422 but still queue the message
+    }
+  }
+
+  // Build queue message for async PDF generation
   const queueMessage = {
     boardId: String(boardId),
     itemId: String(itemId),
     eventType: event.type || 'unknown',
     receivedAt: new Date().toISOString(),
+    userId: claims?.userId || claims?.sub || undefined, // for audit trail
   };
-  logger.event('onboarding-request-queued', queueMessage);
-  return { status: 200, body: { queued: true, itemId: String(itemId) }, queueMessage };
+
+  logger.event('onboarding-request-queued', {
+    itemId,
+    boardId,
+    eventType: event.type,
+    warnings: warnings.length > 0 ? warnings : undefined,
+  });
+
+  return {
+    status: warnings.length > 0 ? 422 : 200,
+    body: warnings.length > 0
+      ? {
+          queued: true,
+          itemId: String(itemId),
+          warning: 'incomplete hire data',
+          note: 'Message queued; PDF generation will validate fully',
+        }
+      : { queued: true, itemId: String(itemId) },
+    queueMessage,
+    warnings,
+  };
 }
 
+/**
+ * Azure Function entry point.
+ * Sets context.bindings.generateQueue for the queue output binding.
+ * Handles both successful and failed requests.
+ */
 module.exports = async function (context, req) {
+  let handleError = null;
+
   try {
+    // Call the core handler
     const result = await handleWebhook(req);
-    if (result.queueMessage) context.bindings.generateQueue = JSON.stringify(result.queueMessage);
-    context.res = { status: result.status, headers: { 'Content-Type': 'application/json' }, body: result.body };
-  } catch (err) {
-    logger.error('monday-webhook-failed', err);
-    // Best effort: surface the failure on the board so HR sees it.
-    try {
-      const cfg = config.load();
-      const itemId = req.body && req.body.event && (req.body.event.pulseId || req.body.event.itemId);
-      if (itemId) {
-        await monday.updateStatus(cfg.monday.onboardingBoardId, itemId, { status: 'Webhook Error' }, { verify: false });
+
+    // If there's a queue message, bind it to the output queue
+    if (result.queueMessage) {
+      try {
+        context.bindings.generateQueue = JSON.stringify(result.queueMessage);
+      } catch (err) {
+        // Queue binding failure (503, will retry)
+        handleError = queueErrorToWebhookError(err);
       }
-    } catch (inner) {
-      logger.error('monday-webhook-error-status-write-failed', inner);
     }
-    context.res = { status: 500, body: { error: 'internal error' } };
+
+    // Set HTTP response
+    if (handleError) {
+      handleError.log({ itemId: req.body?.event?.itemId });
+      const response = handleError.getResponse();
+      context.res = {
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' },
+        body: response.body,
+      };
+    } else {
+      context.res = {
+        status: result.status,
+        headers: { 'Content-Type': 'application/json' },
+        body: result.body,
+      };
+      if (result.retryAfter) {
+        context.res.headers['Retry-After'] = result.retryAfter.toString();
+      }
+    }
+  } catch (err) {
+    // Unexpected error (500)
+    if (err instanceof WebhookError) {
+      err.log({ phase: 'main-handler', retryable: err.isRetryable() });
+      const response = err.getResponse();
+      context.res = {
+        status: response.status,
+        headers: { 'Content-Type': 'application/json' },
+        body: response.body,
+      };
+    } else {
+      // Completely unexpected error
+      logger.error('monday-webhook-unexpected-error', err, {
+        message: err?.message,
+        code: err?.code,
+        stack: err?.stack,
+      });
+
+      // Attempt to surface the error on the board for HR visibility
+      try {
+        const cfg = config.load();
+        const itemId = req.body?.event?.itemId || req.body?.event?.pulseId;
+        if (itemId) {
+          await monday.updateStatus(
+            cfg.monday.onboardingBoardId,
+            itemId,
+            { status: 'Webhook Error' },
+            { verify: false }
+          );
+        }
+      } catch (inner) {
+        logger.error('monday-webhook-error-status-write-failed', inner, {
+          itemId: req.body?.event?.itemId,
+        });
+      }
+
+      context.res = {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: { error: 'internal server error', traceId: context.traceContext?.traceparent },
+      };
+    }
   }
 };
 
+// Exports for testing
 module.exports.handleWebhook = handleWebhook;
-module.exports.verifySignature = verifySignature;

@@ -1,0 +1,146 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                  validateADP DEPLOYMENT QUICK REFERENCE                     ║
+║                          NO TRIAL-AND-ERROR ZONE                             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DEPLOY (ONE COMMAND)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  C:\Users\Franky.Lopez\docflow> .\deploy-validateadp.ps1
+
+  Options:
+    -SkipTests          Skip npm test gate (NOT RECOMMENDED)
+    -WaitMinutes 5      Wait up to 5 minutes for warm-up (default: 2)
+    -SkipMonday         Skip Monday.com setup instructions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT THE SCRIPT DOES (Auto)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✓ Pre-flight: Health check + config verification
+  ✓ Tests: npm test (must pass to deploy)
+  ✓ Package: Build zipdeploy (excludes .git, tests, .env)
+  ✓ Deploy: Upload via Kudu SCM (proven method, bypasses WARP)
+  ✓ Verify: Wait for warm-up + endpoint tests
+  ✓ Report: Logs all steps to %TEMP%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANUAL PRE-FLIGHT (If script fails)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Check health:
+    curl https://doc-automation-func.azurewebsites.net/api/health
+
+  Check config:
+    az functionapp config appsettings list -n doc-automation-func `
+      -g doc-automation-rg | jq '.[] | select(.name | contains("MONDAY"))'
+
+  View logs:
+    https://doc-automation-func.scm.azurewebsites.net (Kudu Console)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AFTER DEPLOYMENT (Manual in Monday.com)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Open: https://monday.com/board/18422046530/settings
+  2. Integrations → Webhooks → Create New
+  3. Set:
+     Event: "Change column value" (any ADP field)
+     URL: https://doc-automation-func.azurewebsites.net/api/validateADP
+     Secret: [Get from Azure: MONDAY_SIGNING_SECRET]
+  4. Test: Update a hire record field → status should auto-update
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IF DEPLOYMENT FAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✗ Tests fail → Fix code, retry .\deploy-validateadp.ps1
+
+  ✗ App won't start → Kudu: https://doc-automation-func.scm.azurewebsites.net
+                      Kill w3wp: PowerShell tab → Get-Process w3wp | Stop-Process -Force
+
+  ✗ validateADP returns 404 → Function not deployed. Check zip in Kudu.
+                               Verify src/functions/validateADP/ is in package.
+
+  ✗ Returns 500 → Check Application Insights:
+                   Azure Portal → doc-automation-func → Monitor → Logs
+                   Query: traces | where message contains "validateADP"
+
+  ✗ Returns 401 → Signing secret not set. Set MONDAY_SIGNING_SECRET in app settings.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION (After Deploy)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✓ Health: https://doc-automation-func.azurewebsites.net/api/health
+            Expected: HTTP 200, configLoaded: true
+
+  ✓ validateADP: POST https://doc-automation-func.azurewebsites.net/api/validateADP
+                 Body: {"challenge":"test"}
+                 Expected: HTTP 200, {"challenge":"test"}
+
+  ✓ Logs: Azure Portal → doc-automation-func → Monitor → Logs
+          Query: customEvents | where name == "adp-validation-complete"
+
+  ✓ Function Files: https://doc-automation-func.scm.azurewebsites.net/api/vfs/site/wwwroot/validateADP/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABORT CONDITIONS (STOP IMMEDIATELY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✗ Health endpoint doesn't return 200
+  ✗ npm test fails
+  ✗ MONDAY_SIGNING_SECRET not configured
+  ✗ Kudu upload fails
+  ✗ App doesn't warm up after 2 minutes
+
+  If any of these: DO NOT PROCEED. Fix first, then redeploy.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KEY ENDPOINTS & RESOURCES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Endpoint:     https://doc-automation-func.azurewebsites.net/api/validateADP
+  Kudu Console: https://doc-automation-func.scm.azurewebsites.net
+  Azure Portal: https://portal.azure.com
+                → Resource Groups → doc-automation-rg → doc-automation-func
+
+  App Settings: (via Azure Portal or)
+                az functionapp config appsettings list -n doc-automation-func -g doc-automation-rg
+
+  Monday Board: https://monday.com/board/18422046530
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DEPLOY DOCS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Full Strategy:  C:\Users\Franky.Lopez\docflow\DEPLOY-VALIDATEADP.md
+  Script Code:    C:\Users\Franky.Lopez\docflow\deploy-validateadp.ps1
+  Function Code:  C:\Users\Franky.Lopez\docflow\src\functions\validateADP\index.js
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ROLLBACK (If Needed)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Option 1: Use Azure Portal
+    1. Function App → Deployments → Deployment History
+    2. Find last green deployment
+    3. Click "Redeploy"
+    4. Wait 2-3 minutes
+
+  Option 2: Git rollback
+    1. git log --oneline src/functions/validateADP/
+    2. git checkout <commit-hash> -- src/functions/validateADP/
+    3. .\deploy-validateadp.ps1
+
+  Option 3: Kill stuck process (Kudu)
+    1. https://doc-automation-func.scm.azurewebsites.net/PowerShell
+    2. Get-Process w3wp | Stop-Process -Force
+    3. Wait 30s, test health again
+
+════════════════════════════════════════════════════════════════════════════════
+DEPLOYMENT METHOD: Kudu/SCM zipdeploy
+REASON: Proven method (used for DocFlow), bypasses WARP SSL, byte-exact transfer
+STATUS: Automated via .\deploy-validateadp.ps1
+════════════════════════════════════════════════════════════════════════════════

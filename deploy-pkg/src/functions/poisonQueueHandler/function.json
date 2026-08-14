@@ -1,0 +1,24 @@
+{
+  "scriptFile": "index.js",
+  "bindings": [
+    {
+      "type": "timerTrigger",
+      "direction": "in",
+      "name": "timer",
+      "schedule": "0 */5 * * * *",
+      "runOnStartup": false
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "res"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "retryQueue",
+      "queueName": "docflow-archive-retry",
+      "connection": "AzureWebJobsStorage"
+    }
+  ]
+}

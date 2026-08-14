@@ -1,0 +1,317 @@
+================================================================================
+  DOCFLOW DEPLOYMENT & ROLLBACK FLOW DIAGRAMS
+================================================================================
+
+CURRENT STATE: Direct Deployment (No Blue-Green)
+───────────────────────────────────────────────────────────────────────────────
+
+                                 GitHub (master branch)
+                                        │
+                                        ▼
+                    ┌───────────────────────────────────┐
+                    │   GitHub Actions Workflow Start   │
+                    └───────────────────────────────────┘
+                                 │
+                    ┌────────────────────────────┐
+                    │  1. Run npm test (30s)     │
+                    │  2. Build zip (15s)        │
+                    │  3. Deploy to Azure (60s)  │
+                    │  4. Health check (5 min)   │
+                    └────────────────────────────┘
+                                 │
+                         ┌───────┴─────────┐
+                         │                 │
+                       ✅ OK            ✗ FAIL
+                         │                 │
+                         ▼                 ▼
+                    Production       Rollback Needed
+                    (Live with          (See below)
+                     new code)
+
+              Total Time to Live: 3-5 minutes
+              Downtime: 30-120 seconds (app restarting)
+
+
+IMMEDIATE ROLLBACK: Git Revert
+───────────────────────────────────────────────────────────────────────────────
+
+                    Production Broken ❌
+                            │
+                            ▼
+            ┌───────────────────────────────┐
+            │   cd docflow                   │
+            │   git revert HEAD --no-edit    │
+            │   git push origin master       │
+            └───────────────────────────────┘
+                            │
+                            ▼
+            GitHub Actions triggers (auto)
+                            │
+            ┌───────────────────────────────┐
+            │  1. Run tests (30s)            │
+            │  2. Build revert commit (15s)  │
+            │  3. Deploy (60s)               │
+            │  4. Health check (up to 5 min) │
+            └───────────────────────────────┘
+                            │
+                         ┌──┴──┐
+                         │     │
+                    ✅ OK  ✗ FAIL
+                         │     │
+                         ▼     ▼
+                    Previous  Need 2nd
+                     Code     Rollback
+                     Live     (rare)
+
+              Recovery Time: 2-5 minutes
+              Downtime: 30-120 seconds
+
+
+BLUE-GREEN DEPLOYMENT (Recommended)
+───────────────────────────────────────────────────────────────────────────────
+
+Setup Phase (One-Time):
+─────────────────────
+
+            ┌──────────────────────┐         ┌──────────────────────┐
+            │ Production Slot      │         │  Staging Slot        │
+            │ (Running code)       │         │  (Previous version)  │
+            └──────────────────────┘         └──────────────────────┘
+
+
+Deployment Phase (Every Push):
+──────────────────────────────
+
+    GitHub Push (master)
+            │
+            ▼
+    GitHub Actions Start
+            │
+            ▼
+    ┌─────────────────────────────────┐
+    │ 1. Test (30s)                   │
+    │ 2. Build (15s)                  │
+    │ 3. Deploy to STAGING (60s)      │
+    └─────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────┐
+    │ 4. Run Smoke Tests on Staging   │
+    │    - Health check               │
+    │    - Webhook test               │
+    │    - Data validation            │
+    └─────────────────────────────────┘
+            │
+        ┌───┴──────┐
+        │           │
+      ✅ PASS    ✗ FAIL
+        │           │
+        ▼           ▼
+     Swap      Keep OLD code
+     Slots     (Staging has new)
+        │           │
+        ▼           ▼
+   ┌─────────┐   Alert Team
+   │ INSTANT │   (No prod impact)
+   │ SWAP    │
+   │         │
+   │Production│→ Old Version
+   │Slot     ← ← Staging (NEW)
+   │         │
+   │ NEW     │
+   │ CODE    │
+   │ LIVE    │
+   └─────────┘
+
+            Recovery Time: 10-30 seconds
+            Downtime: ~0 seconds (warm swap)
+
+
+INSTANT BLUE-GREEN ROLLBACK (If Needed)
+───────────────────────────────────────
+
+    Production has NEW code ✅ Deployed but ✗ Broken
+            │
+            ▼
+    ┌─────────────────────────────────┐
+    │  .\rollback.ps1 -Mode SlotSwap  │
+    │  -Verify                        │
+    └─────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────┐
+    │ Swap Staging ← → Production     │
+    │ (Instant: 10-30 seconds)        │
+    └─────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────┐
+    │ Verify:                         │
+    │ - Health check ✓                │
+    │ - Webhook test ✓                │
+    │ - No errors in logs ✓           │
+    └─────────────────────────────────┘
+            │
+            ▼
+    OLD CODE IS LIVE
+    (Production recovered)
+
+            Recovery Time: 10-30 seconds
+            Downtime: ~0 seconds
+
+
+EMERGENCY APP RESTART (Last Resort)
+───────────────────────────────────────────────────────────────────────────────
+
+    App is Frozen/Hung ⚠️
+            │
+            ▼
+    ┌──────────────────────┐
+    │ .\rollback.ps1       │
+    │ -Mode KillApp        │
+    └──────────────────────┘
+            │
+            ▼
+    ┌──────────────────────┐
+    │ Kudu sends signal:   │
+    │ Kill w3wp.exe        │
+    │ (Force restart)      │
+    └──────────────────────┘
+            │
+            ▼
+    ┌──────────────────────┐
+    │ Azure auto-restarts  │
+    │ app with cached code │
+    └──────────────────────┘
+            │
+            ▼
+    APP RESPONSIVE AGAIN
+    (in 5-10 seconds)
+
+            Recovery Time: 30 seconds
+            Downtime: ~5 seconds (restart)
+
+
+DEPLOYMENT DECISION TREE
+───────────────────────────────────────────────────────────────────────────────
+
+    Ready to Deploy?
+            │
+            ├─ ✓ Tests pass?        → YES ─┐
+            ├─ ✓ Code reviewed?     → YES ─┤
+            ├─ ✓ No uncommitted?    → YES ─┤
+            └─ ✓ Prod looks healthy? → YES ─┘
+                                      │
+                                      ▼
+                        Push to master (auto-deploy)
+                                      │
+                        ┌─────────────────────────────┐
+                        │ GitHub Actions running      │
+                        │ (3-5 minutes)               │
+                        └─────────────────────────────┘
+                                      │
+                              ┌───────┴───────┐
+                              │               │
+                        ✅ Success        ✗ Failed
+                              │               │
+                              ▼               ▼
+                        Production OK   GitHub Actions
+                        (verify in 5    shows error
+                         min)           (Code or test issue)
+                              │               │
+                              ▼               ▼
+                        Health check   ┌──────────────┐
+                        200 OK ✓       │ Fix locally: │
+                        Webhook OK ✓   │ • Debug code │
+                        No errors ✓    │ • Fix test   │
+                              │        │ • Commit fix │
+                              ▼        │ • Push again │
+                        DEPLOYMENT     └──────────────┘
+                        SUCCESS! 🎉
+
+
+BLUE-GREEN vs. DIRECT: Comparison
+───────────────────────────────────────────────────────────────────────────────
+
+                 DIRECT (Current)        BLUE-GREEN (Recommended)
+    ────────────────────────────────────────────────────────────────
+
+Recovery      2-5 minutes              10-30 seconds
+Time          ⏱️ Slow                   ⚡ Instant
+
+Downtime      30-120 seconds            ~0 seconds
+              ⏰ Users affected         ✅ No impact
+
+Setup         Already working          5 min one-time
+              ✅ Ready now              📋 Need to run setup-slots.ps1
+
+Risk          Medium                    Very Low
+              (Revert may fail)         (Always have warm slot)
+
+Code Tested   ✓ Yes                     ✓✓ Yes + on staging first
+              Before deploy             Before swap to prod
+
+Failed        No options                Inspect staging
+Rollback      (lost code)               (broken code saved)
+
+Cost          $0 (extra)                ~$10/month
+                                        (staging slot)
+
+Ideal For     ✅ Right now              ✅ New deployments
+              ✅ Quick fix              ✅ Safe deploys
+              ✅ When blocked           ✅ Zero-downtime goal
+
+──────────────────────────────────────────────────────────────────────────────
+
+RECOMMENDATION
+───────────────────────────────────────────────────────────────────────────────
+
+TODAY:         Use Direct Revert if deployment breaks
+               $ .\rollback.ps1 -Mode Revert -Verify
+
+THIS WEEK:     Set up blue-green slots
+               $ .\setup-slots.ps1
+
+NEXT DEPLOY:   Use blue-green for safe deployment
+               (Update deploy.yml workflow)
+
+EVERY MONTH:   Practice rollback drill to verify procedures work
+
+RESULT:        Zero-downtime deployments with instant rollback capability
+
+
+CHECKLISTS
+───────────────────────────────────────────────────────────────────────────────
+
+BEFORE DEPLOYMENT:
+  ☐ npm test (all pass)
+  ☐ git status (clean)
+  ☐ git log (review commits)
+  ☐ npm ci --omit=dev (build prod package)
+  ☐ Ready? → git push origin master
+
+DURING DEPLOYMENT:
+  ☐ GitHub Actions running
+  ☐ Watch: https://github.com/medwatchers/docflow/actions
+  ☐ Typical time: 5-10 minutes
+
+AFTER DEPLOYMENT:
+  ☐ Health endpoint 200 OK
+  ☐ Webhook test 200/400 OK
+  ☐ Logs show no errors
+  ☐ Monday board shows activity
+  ☐ No Slack/PagerDuty alerts for 30 min
+  ☐ Team confirms feature works
+
+IF BROKEN:
+  ☐ Run: .\rollback.ps1 -Mode Revert -Verify
+  ☐ Wait 3-5 minutes
+  ☐ Verify: https://doc-automation-func.azurewebsites.net/api/health
+  ☐ Investigate root cause
+  ☐ Fix locally, commit, try again
+
+================================================================================
+LAST UPDATED: 2026-08-13
+For detailed procedures, see: ROLLBACK_STRATEGY.md
+For emergency reference, see: ROLLBACK_QUICKREF.txt
+================================================================================

@@ -90,17 +90,10 @@ function load(options = {}) {
 
     sharepoint: {
       siteUrl: env.SHAREPOINT_SITE_URL || null,
-      siteId: env.SHAREPOINT_SITE_ID || null,
-      driveId: env.SHAREPOINT_DRIVE_ID || null,
-      tenantId: env.SHAREPOINT_TENANT_ID || null,
-      clientId: env.SHAREPOINT_CLIENT_ID || null,
-      clientSecret: env.SHAREPOINT_CLIENT_SECRET || null,
-      enabled: env.SHAREPOINT_ENABLED === 'true' || env.SHAREPOINT_ENABLED === '1',
     },
 
     retryBaseMs: _int(env.DOCFLOW_RETRY_BASE_MS, 500),
     tempMaxAgeHours: _int(env.DOCFLOW_TEMP_MAX_AGE_HOURS, 168),
-    webhookRateLimitThreshold: _int(env.DOCFLOW_QUEUE_RATE_LIMIT_THRESHOLD, 1000),
   };
 
   _cache = cfg;

@@ -1,0 +1,24 @@
+{
+  "bindings": [
+    {
+      "authLevel": "anonymous",
+      "type": "httpTrigger",
+      "direction": "in",
+      "name": "req",
+      "methods": ["post"],
+      "route": "mondayWebhook"
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "res"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "generateQueue",
+      "queueName": "docflow-generate",
+      "connection": "AzureWebJobsStorage"
+    }
+  ]
+}

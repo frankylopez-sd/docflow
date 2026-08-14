@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # Azure Storage Emulator (Azurite)
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: docflow-azurite
+    ports:
+      - "10000:10000"  # Blob Storage
+      - "10001:10001"  # Queue Storage
+      - "10002:10002"  # Table Storage
+    environment:
+      AZURITE_ACCOUNTS: devstoreaccount1:Eby8vdM02xNOcqFlqUwJPLlmEtlCDXstg9AQOLsWxAebk7zRobRciujWDUEL5R7KrHQBxWxLro6aC8roWcNA==
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000/devstoreaccount1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - docflow-network
+
+  # DocFlow Azure Functions
+  docflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docflow-functions
+    depends_on:
+      azurite:
+        condition: service_healthy
+    ports:
+      - "7071:7071"  # Azure Functions Runtime
+    environment:
+      # Storage Configuration (Azurite)
+      AzureWebJobsStorage: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXstg9AQOLsWxAebk7zRobRciujWDUEL5R7KrHQBxWxLro6aC8roWcNA==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+      AzureWebJobsDashboard: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXstg9AQOLsWxAebk7zRobRciujWDUEL5R7KrHQBxWxLro6aC8roWcNA==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+
+      # Environment
+      ENVIRONMENT: local
+      NODE_ENV: development
+
+      # Adobe Configuration (Use example credentials or set your own)
+      ADOBE_CLIENT_ID: ${ADOBE_CLIENT_ID:-test-client-id}
+      ADOBE_CLIENT_SECRET: ${ADOBE_CLIENT_SECRET:-test-client-secret}
+      ADOBE_IMS_URL: ${ADOBE_IMS_URL:-https://ims-na1.adobelogin.com}
+      ADOBE_PDF_SERVICES_URL: ${ADOBE_PDF_SERVICES_URL:-https://pdf-services.adobe.io}
+      ADOBE_SIGN_API_URL: ${ADOBE_SIGN_API_URL:-https://api.na1.adobesign.com}
+
+      # Monday.com Configuration
+      MONDAY_API_TOKEN: ${MONDAY_API_TOKEN:-test-token}
+      MONDAY_API_URL: ${MONDAY_API_URL:-https://api.monday.com/v2}
+      MONDAY_ONBOARDING_BOARD_ID: ${MONDAY_ONBOARDING_BOARD_ID:-1}
+      MONDAY_TEMPLATE_CATALOG_ID: ${MONDAY_TEMPLATE_CATALOG_ID:-1}
+      MONDAY_ARCHIVE_BOARD_ID: ${MONDAY_ARCHIVE_BOARD_ID:-1}
+      MONDAY_SIGNING_SECRET: ${MONDAY_SIGNING_SECRET:-test-secret}
+
+      # Monday Column IDs
+      MONDAY_COL_STATUS: ${MONDAY_COL_STATUS:-status}
+      MONDAY_COL_AGREEMENT_ID: ${MONDAY_COL_AGREEMENT_ID:-text_agreement}
+      MONDAY_COL_PDF_URL: ${MONDAY_COL_PDF_URL:-link_pdf}
+      MONDAY_COL_SIGNED_PDF_URL: ${MONDAY_COL_SIGNED_PDF_URL:-link_signed}
+      MONDAY_COL_SIGNER_DETAILS: ${MONDAY_COL_SIGNER_DETAILS:-long_text_signers}
+      MONDAY_COL_TIMESTAMP: ${MONDAY_COL_TIMESTAMP:-date_updated}
+      MONDAY_COL_EMAIL: ${MONDAY_COL_EMAIL:-email}
+      MONDAY_COL_START_DATE: ${MONDAY_COL_START_DATE:-date_start}
+      MONDAY_COL_POSITION: ${MONDAY_COL_POSITION:-text_position}
+      MONDAY_COL_MANAGER: ${MONDAY_COL_MANAGER:-text_manager}
+      MONDAY_COL_TEMPLATE: ${MONDAY_COL_TEMPLATE:-text_template}
+      MONDAY_COL_TRIGGER: ${MONDAY_COL_TRIGGER:-checkbox}
+
+      # Storage Blob Configuration
+      STORAGE_ACCOUNT_NAME: ${STORAGE_ACCOUNT_NAME:-devstoreaccount1}
+      STORAGE_ACCOUNT_KEY: ${STORAGE_ACCOUNT_KEY:-Eby8vdM02xNOcqFlqUwJPLlmEtlCDXstg9AQOLsWxAebk7zRobRciujWDUEL5R7KrHQBxWxLro6aC8roWcNA==}
+      BLOB_TEMP_CONTAINER: ${BLOB_TEMP_CONTAINER:-pdf-temp}
+      BLOB_ARCHIVE_CONTAINER: ${BLOB_ARCHIVE_CONTAINER:-pdf-archive}
+
+      # SharePoint Configuration (if needed)
+      SHAREPOINT_SITE_URL: ${SHAREPOINT_SITE_URL:-https://medwatchers.sharepoint.com/sites/HR}
+
+      # Observability
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+
+      # Tuning
+      DOCFLOW_RETRY_BASE_MS: ${DOCFLOW_RETRY_BASE_MS:-500}
+      DOCFLOW_ADOBE_RATE_LIMIT_PER_MIN: ${DOCFLOW_ADOBE_RATE_LIMIT_PER_MIN:-500}
+      DOCFLOW_MONDAY_RATE_LIMIT_PER_SEC: ${DOCFLOW_MONDAY_RATE_LIMIT_PER_SEC:-10}
+      DOCFLOW_TEMP_MAX_AGE_HOURS: ${DOCFLOW_TEMP_MAX_AGE_HOURS:-168}
+
+    volumes:
+      # Mount source code for live development
+      - .:/app
+      - /app/node_modules
+    networks:
+      - docflow-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7071/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  azurite-data:
+    driver: local
+
+networks:
+  docflow-network:
+    driver: bridge

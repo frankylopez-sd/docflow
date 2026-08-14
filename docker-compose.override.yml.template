@@ -1,0 +1,118 @@
+# Docker Compose Override Template
+# ===================================
+#
+# This file allows you to customize the Docker Compose configuration for your
+# local development environment without modifying docker-compose.yml.
+#
+# To use:
+# 1. Copy this file to docker-compose.override.yml
+# 2. Uncomment and customize the sections you need
+# 3. The override file is automatically loaded by docker-compose
+# 4. Add docker-compose.override.yml to .gitignore (it's already there)
+#
+# Docker Compose will merge this file with docker-compose.yml automatically.
+# Settings in this file override those in docker-compose.yml.
+#
+# Documentation: https://docs.docker.com/compose/extends/
+
+version: '3.8'
+
+services:
+  # Override DocFlow service settings
+  docflow:
+    # Uncomment to use a custom image
+    # image: docflow:custom-tag
+
+    # Uncomment to add extra ports (e.g., for debugging)
+    # ports:
+    #   - "9229:9229"  # Node debugging port
+    #   - "7073:7073"  # Additional Functions port
+
+    # Uncomment to add environment overrides
+    # environment:
+    #   ENVIRONMENT: development
+    #   DOCFLOW_RETRY_BASE_MS: 200
+    #   ADOBE_CLIENT_ID: your-override-id
+
+    # Uncomment to add additional volumes
+    # volumes:
+    #   - /path/to/local/code:/app:delegated
+    #   - ~/.ssh:/root/.ssh:ro  # For git operations
+
+    # Uncomment to modify resource limits
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '1'
+    #       memory: 1G
+
+    # Uncomment to add extra environment variables from file
+    # env_file:
+    #   - .env.local
+    #   - .env.development
+
+    # Uncomment to use a different working directory
+    # working_dir: /app/src
+
+    # Uncomment to change the entrypoint
+    # entrypoint: npm
+    # command: run start-debug
+
+  # Override Azurite settings
+  azurite:
+    # Uncomment to add custom volumes for persistent data
+    # volumes:
+    #   - ./azurite-data-backup:/data
+
+    # Uncomment to add environment variables
+    # environment:
+    #   AZURITE_ACCOUNTS: custom-account:key
+
+    # Uncomment to modify resource limits
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 1G
+
+  # Example: Add a mock Adobe PDF Services endpoint
+  # mock-adobe:
+  #   image: mockserver:latest
+  #   container_name: docflow-mock-adobe
+  #   ports:
+  #     - "1080:1080"
+  #   networks:
+  #     - docflow-network
+  #   environment:
+  #     MOCKSERVER_PROPERTY_FILE: /config/mockserver-init.json
+  #   volumes:
+  #     - ./mock-adobe-config.json:/config/mockserver-init.json
+
+  # Example: Add a mock Monday.com endpoint
+  # mock-monday:
+  #   image: httpbin:latest
+  #   container_name: docflow-mock-monday
+  #   ports:
+  #     - "1081:80"
+  #   networks:
+  #     - docflow-network
+  #   environment:
+  #     GUNICORN_CMD_ARGS: --bind=0.0.0.0:80
+
+# Additional override sections
+#
+# volumes:
+#   azurite-data:
+#     driver: local
+#     driver_opts:
+#       type: tmpfs
+#       device: tmpfs
+#
+# networks:
+#   docflow-network:
+#     driver: bridge
+#     driver_opts:
+#       # Custom network options

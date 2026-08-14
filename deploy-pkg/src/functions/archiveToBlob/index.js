@@ -1,15 +1,21 @@
 'use strict';
 /**
  * archiveToBlob: queue-triggered final stage. Downloads the signed PDF,
- * stores it permanently in pdf-archive (byte-verified, secondary-account
- * fallback handled by lib/blob), writes status + link back to the onboarding
- * row, and creates the Archive board record.
+ * attempts to store it in SharePoint first (if configured), with automatic
+ * fallback to blob archive (byte-verified, secondary-account fallback
+ * handled by lib/blob). Writes status + link back to the onboarding row
+ * and creates the Archive board record.
+ *
+ * If SharePoint upload fails, the message is retried hourly via the poison
+ * queue handler (24hr max); after that, blob storage is used as fallback
+ * with an ops alert.
  */
 
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
 const blob = require('../../lib/blob');
+const sharepoint = require('../../lib/sharepoint');
 const { downloadSigned } = require('../downloadSigned');
 const { updateMondayStatus } = require('../updateMonday');
 
@@ -39,7 +45,7 @@ async function findItemByAgreementId(agreementId) {
 
 /**
  * Core pipeline step (exported for tests).
- * @param {Object} msg {agreementId, itemId?, boardId?, signers?}
+ * @param {Object} msg {agreementId, itemId?, boardId?, signers?, _context?}
  */
 async function processArchive(msg) {
   const cfg = config.load();
@@ -47,6 +53,7 @@ async function processArchive(msg) {
   let itemId = msg.itemId || null;
   let boardId = msg.boardId || cfg.monday.onboardingBoardId;
   let employeeName = msg.employeeName || null;
+  const context = msg._context || { bindings: {} };
 
   try {
     if (!itemId) {
@@ -64,11 +71,59 @@ async function processArchive(msg) {
     // 1. fetch signed bytes from Adobe
     const signedPdf = await downloadSigned(agreementId);
 
-    // 2. permanent archive: {employeeId}_{docType}_{timestamp}.pdf
+    // 2. permanent archive: first try SharePoint, fallback to blob
     const docType = (msg.docType || 'Document').replace(/[^\w-]+/g, '-');
-    const key = `${itemId}_${docType}_${Date.now()}.pdf`;
-    const uploaded = await blob.uploadPDF(cfg.storage.archiveContainer, key, signedPdf);
-    const permanentUrl = blob.blobUrl(cfg.storage.archiveContainer, key);
+    const fileName = `${itemId}_${docType}_${Date.now()}.pdf`;
+    const blobKey = `${itemId}_${docType}_${Date.now()}.pdf`;
+
+    let permanentUrl = null;
+    let uploadLocation = 'blob'; // Track where the PDF ended up
+    let spUploadId = null;
+
+    // Try SharePoint upload if configured
+    if (cfg.sharepoint.siteUrl) {
+      const spResult = await sharepoint.tryUpload(signedPdf, fileName);
+      if (spResult.success) {
+        permanentUrl = spResult.webUrl;
+        spUploadId = spResult.uploadId;
+        uploadLocation = 'sharepoint';
+        logger.event('archive-stored-sharepoint', {
+          agreementId, itemId, spUploadId, fileName,
+        });
+      } else {
+        // SharePoint failed: will retry via poison queue handler
+        logger.warn('archive-sharepoint-failed-using-blob', {
+          agreementId, itemId, error: spResult.error, code: spResult.code,
+        });
+        uploadLocation = 'blob-fallback';
+      }
+    }
+
+    // If SharePoint not configured or failed: store in blob
+    let uploaded = null;
+    if (!permanentUrl) {
+      uploaded = await blob.uploadPDF(cfg.storage.archiveContainer, blobKey, signedPdf);
+      permanentUrl = blob.blobUrl(cfg.storage.archiveContainer, blobKey);
+
+      // If we fell back to blob due to SharePoint failure, enqueue for retry
+      if (uploadLocation === 'blob-fallback') {
+        const retryMsg = {
+          agreementId,
+          itemId,
+          boardId,
+          fileName,
+          tempKey: blobKey,
+          archiveKey: blobKey,
+          error: 'Initial SharePoint upload failed',
+          retry_count: 0,
+          firstFailedAt: new Date().toISOString(),
+        };
+        if (context && context.bindings) {
+          context.bindings.poisonRetryQueue = JSON.stringify(retryMsg);
+        }
+        logger.event('archive-poison-retry-enqueued', { agreementId, itemId });
+      }
+    }
 
     // 3. status + link back on the onboarding row
     await updateMondayStatus(boardId, itemId, {
@@ -121,32 +176,6 @@ async function processArchive(msg) {
       // Don't fail the main flow if ADP creation fails
     }
 
-    // 6. Queue SharePoint upload (non-blocking)
-    if (cfg.sharepoint && cfg.sharepoint.enabled) {
-      try {
-        const { QueueClient } = require('@azure/storage-queue');
-        const queueUrl = `https://${cfg.storage.accountName}.queue.core.windows.net/sharepoint-upload-queue`;
-        const queueClient = new QueueClient(queueUrl, new (require('@azure/identity')).DefaultAzureCredential());
-        const sharePointMsg = JSON.stringify({
-          agreementId,
-          itemId,
-          boardId,
-          employeeName: msg.employeeName || row?.name || null,
-          docType: msg.docType || row?.columns[cfg.monday.columns.template] || 'Document',
-          signers: msg.signers || [],
-        });
-        await queueClient.sendMessage(Buffer.from(sharePointMsg).toString('base64'));
-        logger.info('sharepoint-upload-queued', { agreementId, itemId });
-      } catch (spqErr) {
-        logger.warn('sharepoint-queue-trigger-failed', {
-          agreementId,
-          itemId,
-          error: spqErr.message,
-        });
-        // Non-blocking: don't fail archive if SharePoint queue fails
-      }
-    }
-
     logger.event('archive-stage-complete', { agreementId, itemId, key, archiveItemId });
     return { itemId, key, url: permanentUrl, sasUrl: uploaded.sasUrl, archiveItemId };
   } catch (err) {
@@ -164,6 +193,8 @@ async function processArchive(msg) {
 
 module.exports = async function (context, message) {
   const msg = typeof message === 'string' ? JSON.parse(message) : message;
+  // Pass context so we can enqueue poison retry messages if needed
+  msg._context = context;
   await processArchive(msg);
 };
 
