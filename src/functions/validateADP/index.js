@@ -3,6 +3,7 @@
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
+const queue = require('../../lib/priorityQueueService');
 
 /**
  * validateADP: Validates 25 required ADP/HR fields from Monday hire record.
@@ -67,7 +68,7 @@ module.exports = async function (context, req) {
     // If valid, queue PDF generation
     if (isValid) {
       try {
-        await monday.queueMessage('docflow-generate', {
+        await queue.routeMessage({
           boardId,
           itemId,
           ...hireData,
