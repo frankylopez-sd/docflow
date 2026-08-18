@@ -24,7 +24,10 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-status-update-failed', { itemId, error: err.message });
     });
 
-    // Define 3 signers in serial order
+    // Define 3 signers in serial order. The board's supervisor column holds a
+    // display name (e.g. "Avani"), not an address — only use it if it is a
+    // real email, otherwise route to the manager distribution address.
+    const isEmail = (s) => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
     const signers = [
       {
         email: 'hr@medwatchers.com', // HR Rep
@@ -32,7 +35,7 @@ module.exports = async function (context, queueItem) {
         order: 0
       },
       {
-        email: supervisor || 'manager@medwatchers.com', // Manager
+        email: isEmail(supervisor) ? supervisor : 'manager@medwatchers.com', // Manager
         name: 'Manager',
         order: 1
       },
