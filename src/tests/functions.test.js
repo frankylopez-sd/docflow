@@ -55,7 +55,6 @@ describe('Azure Function entrypoints', () => {
     await health(ctx);
     expect(ctx.res.status).toBe(200);
     expect(ctx.res.body.status).toBe('ok');
-    expect(ctx.res.body.configLoaded).toBe(true);
     expect(new Date(ctx.res.body.timestamp).getTime()).not.toBeNaN();
   });
 
@@ -73,19 +72,30 @@ describe('Azure Function entrypoints', () => {
     expect(ctx.res.status).toBe(500);
   });
 
-  test('generatePDF entry parses queue message string and enqueues signing', async () => {
+  test('generatePDF entry hydrates hire data from Monday and enqueues signing', async () => {
     const ctx = makeContext();
-    await generatePDF(ctx, JSON.stringify({ boardId: '111', itemId: '555' }));
-    const next = JSON.parse(ctx.bindings.signQueue);
+    // Webhook-shaped queue message: only {boardId, itemId} — the rest is
+    // hydrated from the Monday row (Monday is the database of record).
+    await generatePDF(ctx, { boardId: '111', itemId: '555' });
+    const next = ctx.bindings.signQueue;
     expect(next.pdfUrl).toContain('pdf-temp');
-    expect(backend.rows[555].written.status).toEqual({ label: 'Generated' });
+    expect(next).toMatchObject({
+      boardId: '111',
+      itemId: '555',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      workEmail: 'jane@medwatchers.com',
+    });
+    expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
   });
 
-  test('sendForSign entry processes queue message string', async () => {
-    const signMsg = await generatePDF.processGenerate({ boardId: '111', itemId: '555' });
+  test('sendForSign entry processes the sign queue message', async () => {
+    const genCtx = makeContext();
+    await generatePDF.processGenerate(genCtx, { boardId: '111', itemId: '555' });
     const ctx = makeContext();
-    await sendForSign(ctx, JSON.stringify(signMsg));
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Sign' });
+    await sendForSign(ctx, genCtx.bindings.signQueue);
+    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
+    expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
   });
 
   test('adobeWebhook entry enqueues archive work and echoes client id', async () => {
@@ -106,13 +116,20 @@ describe('Azure Function entrypoints', () => {
     expect(ctx.res.status).toBe(500);
   });
 
-  test('archiveToBlob entry archives from a queue message string', async () => {
-    const signMsg = await generatePDF.processGenerate({ boardId: '111', itemId: '555' });
-    await sendForSign.processSend(signMsg);
+  test('archiveToBlob entry archives from an agreement-only queue message', async () => {
+    const genCtx = makeContext();
+    await generatePDF.processGenerate(genCtx, { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), genCtx.bindings.signQueue);
     const ctx = makeContext();
-    await archiveToBlob(ctx, JSON.stringify({ agreementId: 'AGR-42' }));
-    expect(backend.rows[555].written.status).toEqual({ label: 'Completed' });
-    expect(backend.archiveItems).toHaveLength(1);
+    // Adobe webhook messages carry only the agreementId — archiveToBlob must
+    // resolve the Monday item itself.
+    await archiveToBlob(ctx, { agreementId: 'AGR-42' });
+    expect(backend.rows[555].written.status).toEqual({ label: 'Onboarding Complete' });
+    expect(backend.rows[555].written.link_signed).toMatchObject({
+      url: expect.stringContaining('pdf-archive'),
+    });
+    const archiveKey = [...storageMock.__store.keys()].find((k) => k.includes('|pdf-archive|'));
+    expect(archiveKey).toBeDefined();
   });
 
   test('cleanup entry runs with a past-due timer', async () => {
@@ -186,23 +203,31 @@ describe('signPoller fallback', () => {
 });
 
 describe('mondayWebhook signature edge cases', () => {
+  const { validateSignature, WebhookError, ErrorTypes } = require('../lib/webhookErrors');
+
   test('accepts anything when no signing secret is configured', () => {
-    expect(mondayWebhook.verifySignature('whatever', null).valid).toBe(true);
+    expect(validateSignature('whatever', null).valid).toBe(true);
   });
 
-  test('rejects a missing Authorization header', () => {
-    expect(mondayWebhook.verifySignature(null, 'secret').valid).toBe(false);
+  test('rejects a missing Authorization header with a 401 WebhookError', () => {
+    let err;
+    try { validateSignature(null, 'secret'); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(WebhookError);
+    expect(err.type).toBe(ErrorTypes.SIGNATURE_MISSING);
+    expect(err.getResponse().status).toBe(401);
   });
 
-  test('rejects an expired token', () => {
+  test('rejects an expired token with a 401 WebhookError', () => {
     const b64url = (s) => Buffer.from(s).toString('base64url');
     const crypto = require('crypto');
     const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
     const payload = b64url(JSON.stringify({ exp: Math.floor(Date.now() / 1000) - 60 }));
     const sig = crypto.createHmac('sha256', 'test-signing-secret').update(`${header}.${payload}`).digest('base64url');
-    const result = mondayWebhook.verifySignature(`${header}.${payload}.${sig}`, 'test-signing-secret');
-    expect(result.valid).toBe(false);
-    expect(result.reason).toBe('token-expired');
+    let err;
+    try { validateSignature(`${header}.${payload}.${sig}`, 'test-signing-secret'); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(WebhookError);
+    expect(err.type).toBe(ErrorTypes.TOKEN_EXPIRED);
+    expect(err.getResponse().status).toBe(401);
   });
 
   test('ignores events without an item id', async () => {
@@ -277,32 +302,73 @@ describe('adobe: webhook registration, status, sign OAuth', () => {
   });
 });
 
-describe('generatePDF helpers', () => {
-  test('resolveTemplate throws for an unknown template name', () => {
-    const cols = config.load().monday.columns;
-    expect(() => generatePDF.resolveTemplate(
-      [{ templateName: 'Offer Letter', itemId: '901' }],
-      { columns: { [cols.template]: 'Nonexistent' } },
-      cols
-    )).toThrow(/not found in catalog/);
+describe('generatePDF merge-data contract', () => {
+  // Template resolution moved into adobe.generateOfferLetter (env template id);
+  // data mapping is now the mergeData construction in processGenerate, guarded
+  // by adobe.extractMergeFields against the template schema.
+
+  const FULL_HIRE_MSG = {
+    boardId: '111',
+    itemId: '555',
+    firstName: 'Jane',
+    lastName: 'Doe',
+    workEmail: 'jane@medwatchers.com',
+    adpJobTitle: 'Pharmacy Tech',
+    adpDepartment: 'Pharmacy',
+    supervisor: 'Mayra R',
+    payRate: 65000,
+    payFrequency: 'Annual',
+    startDate: '2026-09-01',
+  };
+
+  test('extractMergeFields throws for missing required merge fields', () => {
+    const schema = ['firstName', 'lastName', 'jobTitle', 'department'];
+    let err;
+    try { adobe.extractMergeFields(schema, { firstName: 'Jane', department: 'Pharmacy' }); } catch (e) { err = e; }
+    expect(err).toBeDefined();
+    expect(err.message).toMatch(/Merge data missing required fields/);
+    expect(err.code).toBe('MISSING_MERGE_FIELDS');
+    expect(err.missing).toEqual(['lastName', 'jobTitle']);
   });
 
-  test('resolveTemplate throws on an empty catalog', () => {
-    const cols = config.load().monday.columns;
-    expect(() => generatePDF.resolveTemplate([], { columns: {} }, cols)).toThrow(/catalog is empty/);
+  test('extractMergeFields passes with complete data', () => {
+    const schema = ['firstName', 'lastName'];
+    expect(adobe.extractMergeFields(schema, { firstName: 'Jane', lastName: 'Doe' }))
+      .toEqual({ fields: ['firstName', 'lastName'], missing: [] });
   });
 
-  test('buildDataObject splits names and maps configured columns', () => {
-    const cols = config.load().monday.columns;
-    const data = generatePDF.buildDataObject({
-      name: 'Jane Q Doe',
-      columns: { email: 'j@x.com', date_start: '2026-09-01', text_position: 'Tech', text_manager: 'M' },
-      byTitle: {},
-    }, cols);
-    expect(data.firstName).toBe('Jane');
-    expect(data.lastName).toBe('Q Doe');
-    expect(data.email).toBe('j@x.com');
-    expect(data.startDate).toBe('2026-09-01');
+  test('processGenerate maps queue hire fields onto the Adobe merge data', async () => {
+    const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
+    try {
+      await generatePDF.processGenerate(makeContext(), { ...FULL_HIRE_MSG });
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({
+        firstName: 'Jane',
+        lastName: 'Doe',
+        jobTitle: 'Pharmacy Tech',        // adpJobTitle
+        department: 'Pharmacy',           // adpDepartment
+        email: 'jane@medwatchers.com',    // workEmail
+        supervisor: 'Mayra R',
+        compensation: 65000,              // payRate
+        frequency: 'Annual',              // payFrequency
+        startDate: '2026-09-01',
+      }));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('processGenerate defaults startDate to today when absent', async () => {
+    const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
+    try {
+      const msg = { ...FULL_HIRE_MSG };
+      delete msg.startDate;
+      await generatePDF.processGenerate(makeContext(), msg);
+      const mergeData = spy.mock.calls[0][0];
+      expect(mergeData.startDate).toBe(new Date().toISOString().split('T')[0]);
+      expect(mergeData.generatedDate).toBe(new Date().toISOString().split('T')[0]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

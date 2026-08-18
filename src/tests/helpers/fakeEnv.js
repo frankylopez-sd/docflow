@@ -22,6 +22,15 @@ function makeBackend() {
         { id: 'text_position', text: 'Pharmacy Tech', title: 'Position' },
         { id: 'text_manager', text: 'Mayra R', title: 'Manager' },
         { id: 'text_template', text: 'Offer Letter', title: 'Template' },
+        // Hire-record columns (live Onboarding board ids — see config.monday.columns)
+        { id: 'text_mm6570q4', text: 'Jane', title: 'First Name' },
+        { id: 'text_mm65jrfy', text: 'Doe', title: 'Last Name' },
+        { id: 'text_mm65hxkh', text: 'jane@medwatchers.com', title: 'Work Email' },
+        { id: 'dropdown_mm65th43', text: 'Pharmacy Tech', title: 'ADP Job Title' },
+        { id: 'dropdown_mm658qx8', text: 'Pharmacy', title: 'ADP Department' },
+        { id: 'dropdown_mm65wk46', text: 'Mayra R', title: 'Supervisor' },
+        { id: 'numeric_mm65mx3m', text: '65000', title: 'Pay Rate' },
+        { id: 'dropdown_mm658n1t', text: 'Annual', title: 'Pay Frequency' },
       ],
       written: {}, // columnId -> raw written value
     },

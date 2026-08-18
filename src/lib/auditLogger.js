@@ -558,7 +558,11 @@ class AuditLogger {
     };
 
     const signerStatuses = {};
-    const expectedSigners = 3; // HR, Manager, Employee
+    // Default expectation is the standard serial flow (HR, Manager, Employee),
+    // but the SIGNATURE_REQUESTED event records how many signers were actually
+    // enrolled — use that when present so non-standard agreements are judged
+    // against their real signer roster.
+    let expectedSigners = 3;
 
     for (const event of events) {
       const eventType = event.eventType || '';
@@ -567,6 +571,12 @@ class AuditLogger {
       // Track validation
       if (eventType === AUDIT_EVENT_TYPES.ADP_VALIDATION_PASSED) {
         status.adpValidationPassed = data.isValid || true;
+      }
+
+      // Track requested signer roster
+      if (eventType === AUDIT_EVENT_TYPES.SIGNATURE_REQUESTED) {
+        const requested = data.signerCount || (Array.isArray(data.signers) ? data.signers.length : 0);
+        if (requested > 0) expectedSigners = requested;
       }
 
       // Track signatures

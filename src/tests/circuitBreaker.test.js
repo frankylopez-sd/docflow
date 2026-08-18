@@ -325,10 +325,10 @@ describe('integration with apiClient', () => {
     }
 
     const health = getHealthStatus();
-    expect(health.apis).toHaveLength(3);
-    expect(health.apis.map(a => a.name)).toContain('adobe');
-    expect(health.apis.map(a => a.name)).toContain('monday');
-    expect(health.apis.map(a => a.name)).toContain('sharepoint');
+    // The manager is a shared singleton, so earlier tests may have registered
+    // additional breakers — assert containment, not an exact global count.
+    const names = health.apis.map(a => a.name);
+    expect(names).toEqual(expect.arrayContaining(['adobe', 'monday', 'sharepoint']));
   });
 });
 

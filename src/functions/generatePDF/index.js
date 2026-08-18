@@ -22,9 +22,25 @@ async function processGenerate(context, queueItem) {
   }
 
   try {
-    const { boardId, itemId, firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, startDate } = queueItem;
+    let { boardId, itemId, firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, startDate } = queueItem;
 
     logger.info('generatePDF-start', { itemId });
+
+    // Webhook-triggered messages carry only {boardId, itemId}. Monday is the
+    // database of record — hydrate any missing hire fields from the board.
+    if (!firstName || !lastName || !workEmail || !adpJobTitle) {
+      const hire = await monday.fetchHireData(boardId, itemId);
+      firstName = firstName || hire.firstName;
+      lastName = lastName || hire.lastName;
+      workEmail = workEmail || hire.workEmail;
+      adpJobTitle = adpJobTitle || hire.adpJobTitle;
+      adpDepartment = adpDepartment || hire.adpDepartment;
+      supervisor = supervisor || hire.supervisor;
+      payRate = payRate || hire.payRate;
+      payFrequency = payFrequency || hire.payFrequency;
+      startDate = startDate || hire.startDate;
+      logger.info('generatePDF-hydrated-from-monday', { itemId });
+    }
 
     // Update Monday: status → "Documentation Generating"
     await monday.updateItemStatus(boardId, itemId, 'Documentation Generating').catch(err => {
@@ -55,14 +71,16 @@ async function processGenerate(context, queueItem) {
 
     logger.info('generatePDF-created', { itemId, size: pdfBuffer.length });
 
-    // Upload to blob storage (temp container, 24h expiry)
+    // Upload to blob storage (temp container, 24h expiry).
+    // Use the SAS URL so Adobe Sign can fetch the document without auth.
     const fileName = `offer-${itemId}-${Date.now()}.pdf`;
-    const tempUrl = await blob.uploadPdf(pdfBuffer, fileName, 'pdf-temp');
+    const upload = await blob.uploadPDF('pdf-temp', fileName, pdfBuffer);
+    const tempUrl = upload.sasUrl;
 
     logger.info('generatePDF-uploaded', { itemId, url: tempUrl });
 
     // Update Monday with PDF URL
-    await monday.updateItemColumn(boardId, itemId, 'link_pdf', tempUrl).catch(err => {
+    await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.pdfUrl, { url: tempUrl, text: 'Offer PDF' }).catch(err => {
       logger.warn('generatePDF-link-update-failed', { itemId, error: err.message });
     });
 

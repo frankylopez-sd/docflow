@@ -39,31 +39,25 @@ function create() {
       this.url = `https://${account}.blob.core.windows.net/${container}/${key}`;
     }
     _entry() { return store.get(k(this.account, this.container, this.key)); }
+    _notFound() {
+      const err = new Error(`BlobNotFound: ${this.url}`);
+      err.statusCode = 404;
+      err.code = 'BlobNotFound';
+      return err;
+    }
     async downloadToBuffer() {
       const entry = this._entry();
-      if (!entry) {
-        const err = new Error(`BlobNotFound: ${this.url}`);
-        err.statusCode = 404;
-        throw err;
-      }
+      if (!entry) throw this._notFound();
       return Buffer.from(entry.data);
     }
-    async deleteIfExists() {
-      const existed = store.delete(k(this.account, this.container, this.key));
-      return { succeeded: existed };
-    }
-    async getProperties() {
+    async download() {
       const entry = this._entry();
-      if (!entry) {
-        const err = new Error('BlobNotFound');
-        err.statusCode = 404;
-        throw err;
-      }
-      return { contentLength: entry.data.length, lastModified: entry.lastModified };
+      if (!entry) throw this._notFound();
+      const data = Buffer.from(entry.data);
+      return {
+        readableStreamBody: (async function* () { yield data; })(),
+      };
     }
-  }
-
-  class MockBlockBlobClient extends MockBlobClient {
     async uploadData(buf) {
       if (failUpload.has(this.account)) {
         throw new Error(`injected upload failure for account ${this.account}`);
@@ -73,7 +67,18 @@ function create() {
       store.set(k(this.account, this.container, this.key), { data, lastModified: new Date() });
       return {};
     }
+    async deleteIfExists() {
+      const existed = store.delete(k(this.account, this.container, this.key));
+      return { succeeded: existed };
+    }
+    async getProperties() {
+      const entry = this._entry();
+      if (!entry) throw this._notFound();
+      return { contentLength: entry.data.length, lastModified: entry.lastModified };
+    }
   }
+
+  class MockBlockBlobClient extends MockBlobClient {}
 
   class MockContainerClient {
     constructor(account, container) {
@@ -83,12 +88,28 @@ function create() {
     async createIfNotExists() { return {}; }
     getBlockBlobClient(key) { return new MockBlockBlobClient(this.account, this.container, key); }
     getBlobClient(key) { return new MockBlobClient(this.account, this.container, key); }
-    async *listBlobsFlat() {
+    async deleteBlob(name) {
+      const existed = store.delete(k(this.account, this.container, name));
+      if (!existed) {
+        const err = new Error(`BlobNotFound: ${name}`);
+        err.statusCode = 404;
+        err.code = 'BlobNotFound';
+        throw err;
+      }
+      return {};
+    }
+    async deleteBlobIfExists(name) {
+      const existed = store.delete(k(this.account, this.container, name));
+      return { succeeded: existed };
+    }
+    async *listBlobsFlat(options = {}) {
       const prefix = `${this.account}|${this.container}|`;
+      const namePrefix = options.prefix || '';
       for (const [mapKey, entry] of store.entries()) {
-        if (mapKey.startsWith(prefix)) {
-          yield { name: mapKey.slice(prefix.length), properties: { lastModified: entry.lastModified } };
-        }
+        if (!mapKey.startsWith(prefix)) continue;
+        const name = mapKey.slice(prefix.length);
+        if (namePrefix && !name.startsWith(namePrefix)) continue;
+        yield { name, properties: { lastModified: entry.lastModified } };
       }
     }
   }

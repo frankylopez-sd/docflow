@@ -89,6 +89,43 @@ async function readRow(boardId, itemId) {
 }
 
 /**
+ * Fetch the hire record from the Onboarding board and map board columns to
+ * canonical hire fields. Queue messages carry only {boardId, itemId} —
+ * Monday is the database of record, so workers hydrate from here.
+ * @returns {Promise<Object>} canonical hire fields (firstName, lastName, ...)
+ */
+async function fetchHireData(boardId, itemId) {
+  const cfg = config.load();
+  const c = cfg.monday.columns;
+  const row = await readRow(boardId, itemId);
+
+  const get = (colId, title) => {
+    const v = row.columns[colId];
+    if (v != null && v !== '' && typeof v !== 'object') return v;
+    if (title && row.byTitle[title] != null && row.byTitle[title] !== '') return row.byTitle[title];
+    return null;
+  };
+
+  // Item name is "First Last" — last-resort fallback for names.
+  const nameParts = String(row.name || '').trim().split(/\s+/);
+
+  return {
+    itemId: row.itemId,
+    boardId: row.boardId,
+    name: row.name,
+    firstName: get(c.firstName, 'First Name') || nameParts[0] || null,
+    lastName: get(c.lastName, 'Last Name') || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null),
+    workEmail: get(c.workEmail, 'Email'),
+    adpJobTitle: get(c.jobTitle),
+    adpDepartment: get(c.department),
+    supervisor: get(c.supervisorName),
+    payRate: get(c.payRate),
+    payFrequency: get(c.payFrequency),
+    startDate: get(c.startDate, 'Hired Start Date') || get(null, 'Estimated Start Date'),
+  };
+}
+
+/**
  * Read the template catalog board.
  * @returns {Promise<Array>} [{itemId, templateName, adobeTemplateId, dataFields, signers}]
  */
@@ -152,12 +189,15 @@ async function updateStatus(boardId, itemId, values, opts = {}) {
       text: typeof values.signerDetails === 'string' ? values.signerDetails : JSON.stringify(values.signerDetails),
     };
   }
-  // Always stamp last-touched date.
-  columnValues[cols.timestamp] = { date: new Date().toISOString().slice(0, 10) };
+  // Stamp last-touched date only when the board has a timestamp column mapped
+  // (writing to a nonexistent column ID fails the whole mutation).
+  if (cols.timestamp && values.stampTimestamp !== false && opts.stampTimestamp !== false) {
+    columnValues[cols.timestamp] = { date: new Date().toISOString().slice(0, 10) };
+  }
 
   const mutation = `
     mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues) {
+      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues, create_labels_if_missing: true) {
         id
       }
     }`;
@@ -271,7 +311,7 @@ async function updateItemColumn(boardId, itemId, columnId, value) {
   const cfg = config.load();
   const mutation = `
     mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues) {
+      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues, create_labels_if_missing: true) {
         id
       }
     }`;
@@ -304,6 +344,7 @@ module.exports = {
   readRow,
   readRows,
   readTemplates,
+  fetchHireData,
   updateStatus,
   updateItemStatus,
   updateItemColumn,

@@ -68,13 +68,21 @@ module.exports = async function (context, req) {
     // If valid, queue PDF generation
     if (isValid) {
       try {
-        await queue.routeMessage({
+        const routed = await queue.routeMessage({
           boardId,
           itemId,
           ...hireData,
           timestamp: new Date().toISOString()
         });
-        logger.info('validateADP-queued-pdf-generation', { itemId });
+        // routeMessage only builds the routing descriptor — the physical enqueue
+        // happens through the queue output binding declared in function.json.
+        context.bindings = context.bindings || {};
+        context.bindings[routed.binding] = routed.message;
+        logger.info('validateADP-queued-pdf-generation', {
+          itemId,
+          queueName: routed.queueName,
+          priority: routed.priority
+        });
       } catch (err) {
         logger.error('validateADP-queue-failed', {
           error: err.message,

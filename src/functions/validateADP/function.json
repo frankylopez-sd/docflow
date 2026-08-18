@@ -12,6 +12,27 @@
       "type": "http",
       "direction": "out",
       "name": "res"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "generateQueueHigh",
+      "queueName": "docflow-generate-high",
+      "connection": "AzureWebJobsStorage"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "generateQueueNormal",
+      "queueName": "docflow-generate",
+      "connection": "AzureWebJobsStorage"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "generateQueueLow",
+      "queueName": "docflow-generate-batch",
+      "connection": "AzureWebJobsStorage"
     }
   ]
 }

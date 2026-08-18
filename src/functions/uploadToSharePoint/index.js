@@ -61,7 +61,9 @@ async function processSharePointUpload(msg) {
   let itemId = msg.itemId || null;
   let boardId = msg.boardId || cfg.monday.onboardingBoardId;
   let employeeName = msg.employeeName || null;
-  let docType = msg.docType || 'Document';
+  // Leave docType unset here — step 2 fills it from the Monday row's template
+  // column (falling back to 'Document') when the message doesn't carry one.
+  let docType = msg.docType || null;
 
   // Bail early if SharePoint is not enabled
   if (!cfg.sharepoint.enabled) {

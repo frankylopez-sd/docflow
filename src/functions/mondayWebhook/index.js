@@ -115,8 +115,22 @@ async function handleWebhook(req, mondayRow = null) {
     };
   }
 
-  // Only react to the trigger checkbox being CHECKED
   const isColumnEvent = event.type === 'update_column_value' || event.type === 'change_column_value';
+
+  // Status Exclusion List (anti-recursion): this system writes to the status
+  // column itself, and each write re-triggers a Monday webhook. Drop every
+  // status-column event immediately with 200 to break the feedback loop.
+  if (isColumnEvent && event.columnId === cfg.monday.columns.status) {
+    logger.debug('monday-webhook-status-excluded', { itemId, columnId: event.columnId });
+    return {
+      status: 200,
+      body: { ignored: true, reason: 'status column event (exclusion list)' },
+      queueMessage: null,
+      warnings: [],
+    };
+  }
+
+  // Only react to the trigger checkbox being CHECKED
   const isTriggerColumn = !event.columnId || event.columnId === cfg.monday.columns.trigger;
   const checked = event.value && (event.value.checked === true || event.value.checked === 'true');
 
@@ -209,7 +223,7 @@ module.exports = async function (context, req) {
 
     // Set HTTP response
     if (handleError) {
-      handleError.log({ itemId: req.body?.event?.itemId });
+      handleError.log({ itemId: req?.body?.event?.itemId });
       const response = handleError.getResponse();
       context.res = {
         status: response.status,
@@ -247,7 +261,7 @@ module.exports = async function (context, req) {
       // Attempt to surface the error on the board for HR visibility
       try {
         const cfg = config.load();
-        const itemId = req.body?.event?.itemId || req.body?.event?.pulseId;
+        const itemId = req?.body?.event?.itemId || req?.body?.event?.pulseId;
         if (itemId) {
           await monday.updateStatus(
             cfg.monday.onboardingBoardId,
@@ -258,7 +272,7 @@ module.exports = async function (context, req) {
         }
       } catch (inner) {
         logger.error('monday-webhook-error-status-write-failed', inner, {
-          itemId: req.body?.event?.itemId,
+          itemId: req?.body?.event?.itemId,
         });
       }
 

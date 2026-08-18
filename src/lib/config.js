@@ -76,6 +76,15 @@ function load(options = {}) {
         manager: env.MONDAY_COL_MANAGER || 'text_manager',
         template: env.MONDAY_COL_TEMPLATE || 'text_template',
         trigger: env.MONDAY_COL_TRIGGER || 'checkbox',
+        // Hire-record fields on the Onboarding board (defaults = live board 18422046530)
+        firstName: env.MONDAY_COL_FIRST_NAME || 'text_mm6570q4',
+        lastName: env.MONDAY_COL_LAST_NAME || 'text_mm65jrfy',
+        workEmail: env.MONDAY_COL_WORK_EMAIL || 'text_mm65hxkh',
+        jobTitle: env.MONDAY_COL_JOB_TITLE || 'dropdown_mm65th43',
+        department: env.MONDAY_COL_DEPARTMENT || 'dropdown_mm658qx8',
+        supervisorName: env.MONDAY_COL_SUPERVISOR_NAME || 'dropdown_mm65wk46',
+        payRate: env.MONDAY_COL_PAY_RATE || 'numeric_mm65mx3m',
+        payFrequency: env.MONDAY_COL_PAY_FREQUENCY || 'dropdown_mm658n1t',
       },
     },
 

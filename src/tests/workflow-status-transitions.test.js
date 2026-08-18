@@ -18,13 +18,17 @@
  * - Webhook Error
  */
 
+// Mock dependencies — including Azure Storage: without this, eventSourcing
+// constructs a real BlobServiceClient and hangs retrying network uploads.
+jest.mock('../lib/config');
+jest.mock('../lib/logger');
+jest.mock('@azure/storage-blob', () => require('./helpers/mockStorage').create());
+jest.mock('@azure/identity', () => ({ DefaultAzureCredential: class DefaultAzureCredential {} }));
+
 const eventSourcing = require('../lib/eventSourcing');
 const { AuditLogger, AUDIT_EVENT_TYPES } = require('../lib/auditLogger');
 const config = require('../lib/config');
-
-// Mock dependencies
-jest.mock('../lib/config');
-jest.mock('../lib/logger');
+const storageMock = require('@azure/storage-blob');
 
 describe('Workflow Status Transitions Logging', () => {
   let auditLogger;
@@ -32,6 +36,7 @@ describe('Workflow Status Transitions Logging', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    storageMock.__reset();
     eventSourcing._reset();
     auditLogger = new AuditLogger({ retentionDays: 365, namespace: 'docflow' });
 

@@ -8,16 +8,33 @@ const logger = require('../lib/logger');
 jest.mock('axios');
 const axios = require('axios');
 
+const SHAREPOINT_ENV_VARS = [
+  'SHAREPOINT_TENANT_ID',
+  'SHAREPOINT_CLIENT_ID',
+  'SHAREPOINT_CLIENT_SECRET',
+  'SHAREPOINT_SITE_ID',
+  'SHAREPOINT_DRIVE_ID',
+];
+
+function clearSharePointEnv() {
+  for (const name of SHAREPOINT_ENV_VARS) delete process.env[name];
+}
+
 describe('sharepoint', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     sharepoint._resetTokenCache();
+    // Individual tests set SHAREPOINT_* vars — clear them so config from one
+    // test never leaks into the next (config.reset() re-reads process.env).
+    clearSharePointEnv();
     config.reset();
     process.env.DOCFLOW_LOG_SILENT = 'true';
   });
 
   afterEach(() => {
     delete process.env.DOCFLOW_LOG_SILENT;
+    clearSharePointEnv();
+    config.reset();
   });
 
   describe('getAccessToken', () => {

@@ -12,12 +12,17 @@ jest.mock('@azure/storage-queue', () => ({
 
     getQueueClient(queueName) {
       return {
-        getProperties: jest.fn(async () => ({
-          approximateMessagesCount: global.__testQueueDepth || 0,
-          metadata: { test: 'true' },
-          createdOn: new Date('2026-01-01'),
-          lastModified: new Date(),
-        })),
+        getProperties: jest.fn(async () => {
+          if (global.__testQueueFail) {
+            throw new Error('Queue not found');
+          }
+          return {
+            approximateMessagesCount: global.__testQueueDepth || 0,
+            metadata: { test: 'true' },
+            createdOn: new Date('2026-01-01'),
+            lastModified: new Date(),
+          };
+        }),
       };
     }
   },
@@ -41,6 +46,7 @@ beforeEach(() => {
   config.reset();
   queue._resetState();
   global.__testQueueDepth = 0;
+  global.__testQueueFail = false;
 });
 
 describe('Queue rate limiting', () => {
@@ -50,11 +56,12 @@ describe('Queue rate limiting', () => {
     expect(depth).toBe(42);
   });
 
-  test('getQueueDepth returns 0 on error', async () => {
-    // Mock a failing queue
-    jest.spyOn(queue, 'getQueueDepth').mockRejectedValueOnce(new Error('Queue not found'));
+  test('getQueueDepth returns 0 on error (fail open)', async () => {
+    // Inject a storage-level failure — the contract is fail-open: log and
+    // return 0 so webhooks are let through when the depth check breaks.
+    global.__testQueueFail = true;
     const depth = await queue.getQueueDepth('nonexistent-queue');
-    expect(depth).toBe(undefined);
+    expect(depth).toBe(0);
   });
 
   test('isOverloaded returns false when depth below threshold', async () => {

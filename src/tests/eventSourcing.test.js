@@ -3,17 +3,22 @@
  * Tests for eventSourcing.js
  */
 
+// Mock config, logger and Azure Storage (module factory — @azure/storage-blob's
+// exports are non-configurable, so jest.spyOn on them can never work).
+jest.mock('../lib/config');
+jest.mock('../lib/logger');
+jest.mock('@azure/storage-blob', () => require('./helpers/mockStorage').create());
+jest.mock('@azure/identity', () => ({ DefaultAzureCredential: class DefaultAzureCredential {} }));
+
 const eventSourcing = require('../lib/eventSourcing');
 const config = require('../lib/config');
 const logger = require('../lib/logger');
-
-// Mock config for testing
-jest.mock('../lib/config');
-jest.mock('../lib/logger');
+const storageMock = require('@azure/storage-blob');
 
 describe('EventSourcing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    storageMock.__reset();
     eventSourcing._reset();
     config.load.mockReturnValue({
       environment: 'test',
@@ -49,25 +54,35 @@ describe('EventSourcing', () => {
       const data = { pdfUrl: 'https://example.com/doc.pdf', size: 12345 };
       const metadata = { author: 'test-user', source: 'unit-test' };
 
-      // Mock the blob upload
-      jest.spyOn(require('@azure/storage-blob'), 'BlobServiceClient').mockImplementation(() => ({
-        getContainerClient: jest.fn(() => ({
-          createIfNotExists: jest.fn().mockResolvedValue({}),
-          getBlobClient: jest.fn(() => ({
-            uploadData: jest.fn().mockResolvedValue({}),
-          })),
-          deleteBlobIfExists: jest.fn().mockResolvedValue({}),
-          getBlobClient: jest.fn(() => ({
-            uploadData: jest.fn().mockResolvedValue({}),
-          })),
-        })),
-      }));
+      const result = await eventSourcing.writeEvent(jobId, eventType, data, metadata);
 
-      // Since this test is checking the API contract, we can do a simpler mock:
-      // The actual integration test would run against a real Azure Storage Emulator.
-      expect(eventType).toBe('pdf-generated');
-      expect(data.pdfUrl).toBeDefined();
-      expect(metadata.author).toBe('test-user');
+      // Returned receipt
+      expect(result.eventId).toBeTruthy();
+      expect(result.sequence).toBe(0);
+      expect(new Date(result.timestamp).getTime()).not.toBeNaN();
+      expect(result.blobName).toContain(`events/${jobId}/`);
+      expect(result.blobName).toContain(eventType);
+
+      // Stored immutable event blob
+      const stored = storageMock.__store.get(`teststorage|events|${result.blobName}`);
+      expect(stored).toBeDefined();
+      const event = JSON.parse(stored.data.toString('utf8'));
+      expect(event).toMatchObject({
+        eventId: result.eventId,
+        jobId,
+        timestamp: result.timestamp,
+        sequence: 0,
+        eventType,
+        data,
+      });
+      expect(event.metadata.author).toBe('test-user');
+      expect(event.metadata.source).toBe('unit-test');
+      expect(event.metadata.recordedAt).toBe(result.timestamp);
+
+      // Readable back through the query API
+      const history = await eventSourcing.getHistory(jobId);
+      expect(history.total).toBe(1);
+      expect(history.events[0].eventId).toBe(result.eventId);
     });
   });
 

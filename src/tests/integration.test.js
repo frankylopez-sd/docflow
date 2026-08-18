@@ -28,6 +28,10 @@ const cleanup = require('../functions/cleanup');
 
 let backend;
 
+function makeContext() {
+  return { bindings: {}, bindingData: {}, res: null };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   storageMock.__reset();
@@ -84,24 +88,36 @@ describe('webhook entry points', () => {
 });
 
 describe('happy path: Monday -> PDF -> Sign -> Archive', () => {
-  test('complete flow ends with Completed status, archived PDF and archive row', async () => {
+  test('complete flow ends with Onboarding Complete, archived PDF and signed link', async () => {
     // 1. checkbox checked -> queue message
     const hook = await mondayWebhook.handleWebhook(checkboxEvent(makeMondayJwt('test-signing-secret')));
     expect(hook.status).toBe(200);
     expect(hook.queueMessage).toMatchObject({ boardId: '111', itemId: '555' });
 
-    // 2. generate PDF -> temp blob + status Generated
-    const signMsg = await generatePDF.processGenerate(hook.queueMessage);
-    expect(backend.rows[555].written.status).toEqual({ label: 'Generated' });
+    // 2. generate PDF (hydrates hire data from the Monday row) -> temp blob,
+    //    status "Documentation Generating", sign message on the output binding
+    const genCtx = makeContext();
+    await generatePDF.processGenerate(genCtx, hook.queueMessage);
+    expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
+    const signMsg = genCtx.bindings.signQueue;
     expect(signMsg.pdfUrl).toContain('teststore.blob.core.windows.net/pdf-temp/');
-    expect(signMsg.signers).toEqual(['hr@medwatchers.com', '{employee}']);
+    expect(signMsg).toMatchObject({
+      boardId: '111',
+      itemId: '555',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      workEmail: 'jane@medwatchers.com',
+    });
+    expect(backend.rows[555].written.link_pdf).toMatchObject({ url: signMsg.pdfUrl });
     const tempKeys = [...storageMock.__store.keys()].filter((k) => k.includes('|pdf-temp|'));
     expect(tempKeys).toHaveLength(1);
 
-    // 3. send for signature -> agreement + status Sent for Sign
-    const sent = await sendForSign.processSend(signMsg);
-    expect(sent.agreementId).toBe('AGR-42');
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Sign' });
+    // 3. send for signature -> agreement + status Sent for Signature
+    const signCtx = makeContext();
+    await sendForSign(signCtx, signMsg);
+    expect(signCtx.res.body.agreementId).toBe('AGR-42');
+    expect(signCtx.res.body.signers).toBe(3); // HR -> Manager -> Employee, serial
+    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
 
     // 4. Adobe completion webhook -> archive queue message
@@ -124,20 +140,20 @@ describe('happy path: Monday -> PDF -> Sign -> Archive', () => {
     expect(adobeResult.queueMessage.agreementId).toBe('AGR-42');
     expect(adobeResult.queueMessage.signers).toHaveLength(2);
 
-    // 5. archive -> permanent blob, Completed status, archive board row
-    const archived = await archiveToBlob.processArchive(adobeResult.queueMessage);
+    // 5. archive (resolves the Monday item from the agreementId) -> permanent
+    //    blob, signed link, Onboarding Complete
+    const archCtx = makeContext();
+    await archiveToBlob.processArchive(archCtx, adobeResult.queueMessage);
+    const archived = archCtx.res.body;
     expect(archived.itemId).toBe('555');
-    expect(archived.url).toContain('teststore.blob.core.windows.net/pdf-archive/555_');
+    expect(archived.archiveUrl).toContain('teststore.blob.core.windows.net/pdf-archive/');
 
     const archiveKey = [...storageMock.__store.keys()].find((k) => k.includes('|pdf-archive|'));
     expect(archiveKey).toBeDefined();
     expect(Buffer.compare(storageMock.__store.get(archiveKey).data, SIGNED_BYTES)).toBe(0);
 
-    expect(backend.rows[555].written.status).toEqual({ label: 'Completed' });
-    expect(backend.rows[555].written.link_signed.url).toBe(archived.url);
-    expect(backend.archiveItems).toHaveLength(1);
-    expect(backend.archiveItems[0].name).toContain('Jane Doe');
-    expect(archived.archiveItemId).toBe(backend.archiveItems[0].id);
+    expect(backend.rows[555].written.status).toEqual({ label: 'Onboarding Complete' });
+    expect(backend.rows[555].written.link_signed).toMatchObject({ url: archived.archiveUrl });
   });
 });
 
@@ -145,34 +161,40 @@ describe('failure recovery', () => {
   test('PDF generation failure marks the row PDF Gen Failed, then recovery succeeds', async () => {
     installRoutes(axios, backend, { pdfGenFails: true });
     const msg = { boardId: '111', itemId: '555' };
-    await expect(generatePDF.processGenerate(msg)).rejects.toThrow(/unavailable/);
+    await expect(generatePDF.processGenerate(makeContext(), msg)).rejects.toThrow(/unavailable/);
     expect(backend.rows[555].written.status).toEqual({ label: 'PDF Gen Failed' });
 
     // Adobe comes back -> the queue redelivery succeeds
     installRoutes(axios, backend);
-    const next = await generatePDF.processGenerate(msg);
-    expect(backend.rows[555].written.status).toEqual({ label: 'Generated' });
-    expect(next.pdfUrl).toContain('pdf-temp');
+    const retryCtx = makeContext();
+    await generatePDF.processGenerate(retryCtx, msg);
+    expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
+    expect(retryCtx.bindings.signQueue.pdfUrl).toContain('pdf-temp');
   });
 
   test('Sign failure marks the row Sign Failed, then recovery succeeds', async () => {
-    const signMsg = await generatePDF.processGenerate({ boardId: '111', itemId: '555' });
+    const genCtx = makeContext();
+    await generatePDF.processGenerate(genCtx, { boardId: '111', itemId: '555' });
+    const signMsg = genCtx.bindings.signQueue;
 
     installRoutes(axios, backend, { signFails: true });
-    await expect(sendForSign.processSend(signMsg)).rejects.toThrow(/unavailable/);
+    await expect(sendForSign(makeContext(), signMsg)).rejects.toThrow(/unavailable/);
     expect(backend.rows[555].written.status).toEqual({ label: 'Sign Failed' });
 
     installRoutes(axios, backend);
-    const sent = await sendForSign.processSend(signMsg);
-    expect(sent.agreementId).toBe('AGR-42');
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Sign' });
+    const retryCtx = makeContext();
+    await sendForSign(retryCtx, signMsg);
+    expect(retryCtx.res.body.agreementId).toBe('AGR-42');
+    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
   });
 
-  test('archive failure for unknown agreement throws and leaves no archive row', async () => {
+  test('archive failure for unknown agreement throws and archives nothing', async () => {
     await expect(
       archiveToBlob.processArchive({ agreementId: 'AGR-UNKNOWN' })
     ).rejects.toThrow(/No Monday item found/);
-    expect(backend.archiveItems).toHaveLength(0);
+    const archiveKeys = [...storageMock.__store.keys()].filter((k) => k.includes('|pdf-archive|'));
+    expect(archiveKeys).toHaveLength(0);
+    expect(backend.rows[555].written.status).toBeUndefined();
   });
 });
 

@@ -27,14 +27,26 @@ jest.mock('../lib/logger', () => ({
 
 jest.mock('../lib/monday', () => ({
   updateItemStatus: jest.fn(),
-  queueMessage: jest.fn(),
   _resetState: jest.fn()
+}));
+
+jest.mock('../lib/priorityQueueService', () => ({
+  routeMessage: jest.fn()
 }));
 
 const validateADP = require('../functions/validateADP/index.js');
 const config = require('../lib/config');
 const logger = require('../lib/logger');
 const monday = require('../lib/monday');
+const queue = require('../lib/priorityQueueService');
+
+// Shape returned by the real priorityQueueService.routeMessage
+const ROUTED = {
+  queueName: 'docflow-generate',
+  priority: 'normal',
+  binding: 'generateQueueNormal',
+  message: '{"routed":true}'
+};
 
 const VALID_TEST_DATA = {
   boardId: '18422046530',
@@ -104,7 +116,7 @@ const FIELD_CONFIGS = [
 ];
 
 function makeContext() {
-  return { res: null, req: {} };
+  return { res: null, req: {}, bindings: {} };
 }
 
 describe('validateADP: Field Count Verification', () => {
@@ -115,9 +127,9 @@ describe('validateADP: Field Count Verification', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     monday.updateItemStatus.mockClear();
-    monday.queueMessage.mockClear();
+    queue.routeMessage.mockClear();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
   });
 
   test('VALIDATES all 25 required fields are counted correctly', () => {
@@ -146,9 +158,9 @@ describe('validateADP: Individual Field Validation', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     monday.updateItemStatus.mockClear();
-    monday.queueMessage.mockClear();
+    queue.routeMessage.mockClear();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
   });
 
   // Test each field individually
@@ -163,7 +175,7 @@ describe('validateADP: Individual Field Validation', () => {
         expect(ctx.res.status).toBe(200);
         expect(ctx.res.body.validated).toBe(true);
         expect(ctx.res.body.status).toBe('Create New Hire');
-        expect(monday.queueMessage).toHaveBeenCalled();
+        expect(queue.routeMessage).toHaveBeenCalled();
       });
 
       test(`FAILS when ${field.name} is missing`, async () => {
@@ -177,7 +189,7 @@ describe('validateADP: Individual Field Validation', () => {
         expect(ctx.res.body.validated).toBe(false);
         expect(ctx.res.body.status).toBe('Missing Required Fields');
         expect(ctx.res.body.missingFields).toContain(field.name);
-        expect(monday.queueMessage).not.toHaveBeenCalled();
+        expect(queue.routeMessage).not.toHaveBeenCalled();
       });
 
       test(`FAILS when ${field.name} is empty string`, async () => {
@@ -243,9 +255,9 @@ describe('validateADP: Multi-Field Failures', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     monday.updateItemStatus.mockClear();
-    monday.queueMessage.mockClear();
+    queue.routeMessage.mockClear();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
   });
 
   test('FAILS when multiple fields are missing', async () => {
@@ -274,7 +286,17 @@ describe('validateADP: Multi-Field Failures', () => {
     expect(ctx.res.status).toBe(200);
     expect(ctx.res.body.validated).toBe(true);
     expect(ctx.res.body.missingFields).toBeUndefined();
-    expect(monday.queueMessage).toHaveBeenCalled();
+    expect(queue.routeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boardId: testData.boardId,
+        itemId: testData.itemId,
+        firstName: testData.firstName,
+        payRate: testData.payRate
+      })
+    );
+    // The routed message must land on the queue output binding, or nothing
+    // is physically enqueued by the Functions runtime.
+    expect(ctx.bindings[ROUTED.binding]).toBe(ROUTED.message);
   });
 
   test('FAILS when all 25 fields are missing', async () => {
@@ -297,9 +319,9 @@ describe('validateADP: Monday Integration', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     monday.updateItemStatus.mockClear();
-    monday.queueMessage.mockClear();
+    queue.routeMessage.mockClear();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
   });
 
   test('UPDATES Monday status to "Create New Hire" when valid', async () => {
@@ -333,17 +355,18 @@ describe('validateADP: Monday Integration', () => {
     const validData = { ...VALID_TEST_DATA };
     const ctx1 = makeContext();
     await validateADP(ctx1, { body: validData });
-    expect(monday.queueMessage).toHaveBeenCalled();
+    expect(queue.routeMessage).toHaveBeenCalled();
+    expect(ctx1.bindings[ROUTED.binding]).toBe(ROUTED.message);
 
     jest.clearAllMocks();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
 
     const invalidData = { ...VALID_TEST_DATA };
     delete invalidData.lastName;
     const ctx2 = makeContext();
     await validateADP(ctx2, { body: invalidData });
-    expect(monday.queueMessage).not.toHaveBeenCalled();
+    expect(queue.routeMessage).not.toHaveBeenCalled();
   });
 
   test('HANDLES Monday update failure gracefully', async () => {
@@ -373,9 +396,9 @@ describe('validateADP: Error Handling', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     monday.updateItemStatus.mockClear();
-    monday.queueMessage.mockClear();
+    queue.routeMessage.mockClear();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
   });
 
   test('RETURNS 400 when boardId is missing', async () => {
@@ -402,7 +425,7 @@ describe('validateADP: Error Handling', () => {
 
   test('RETURNS 503 when queueMessage fails', async () => {
     const testData = { ...VALID_TEST_DATA };
-    monday.queueMessage.mockRejectedValue(new Error('Queue unavailable'));
+    queue.routeMessage.mockRejectedValue(new Error('Queue service unavailable'));
     const ctx = makeContext();
 
     await validateADP(ctx, { body: testData });
@@ -430,9 +453,9 @@ describe('validateADP: Logging Verification', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     monday.updateItemStatus.mockClear();
-    monday.queueMessage.mockClear();
+    queue.routeMessage.mockClear();
     monday.updateItemStatus.mockResolvedValue(true);
-    monday.queueMessage.mockResolvedValue(true);
+    queue.routeMessage.mockResolvedValue({ ...ROUTED });
   });
 
   test('LOGS validation check with field counts', async () => {

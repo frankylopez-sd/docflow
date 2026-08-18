@@ -77,7 +77,8 @@ describe('uploadToSharePoint', () => {
           docType: 'Onboarding',
           employeeName: 'John Doe',
           agreementId: 'agreement-uuid',
-        })
+        }),
+        { retries: 2 }
       );
       expect(monday.updateStatus).toHaveBeenCalled();
       expect(result).toMatchObject({
@@ -120,9 +121,15 @@ describe('uploadToSharePoint', () => {
       await processSharePointUpload(msg);
 
       expect(monday.readRow).toHaveBeenCalledWith('board-123', 'item-123');
+      // Row template column ("HR Agreement") must be applied — the metadata
+      // docType is sanitized for SharePoint folder paths ('HR-Agreement').
       expect(sharepoint.uploadPDF).toHaveBeenCalledWith(
         expect.any(Buffer),
-        expect.objectContaining({ docType: 'HR Agreement' })
+        expect.objectContaining({
+          docType: 'HR-Agreement',
+          fileName: expect.stringContaining('HR Agreement'),
+        }),
+        { retries: 2 }
       );
     });
 

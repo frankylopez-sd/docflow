@@ -5,10 +5,11 @@ const logger = require('../../lib/logger');
 const adobe = require('../../lib/adobe');
 const blob = require('../../lib/blob');
 const monday = require('../../lib/monday');
+const { findItemByAgreementId } = require('../uploadToSharePoint');
 
 /**
  * archiveToBlob: Queue-triggered function that archives signed PDF
- * Downloads from Adobe Sign, uploads to SharePoint, updates Monday
+ * Downloads from Adobe Sign, uploads to blob archive, updates Monday
  */
 
 async function processArchive(context, queueItem) {
@@ -20,10 +21,26 @@ async function processArchive(context, queueItem) {
     context = { bindings: {} };
   }
 
+  const boardId = queueItem?.boardId || cfg.monday.onboardingBoardId;
+  let itemId = queueItem?.itemId || null;
+
   try {
-    const { boardId, itemId, agreementId, firstName, lastName } = queueItem;
+    const { agreementId, firstName, lastName } = queueItem;
+    let employeeName = [firstName, lastName].filter(Boolean).join('-') || null;
 
     logger.info('archiveToBlob-start', { itemId, agreementId });
+
+    // Adobe webhook messages only carry the agreementId — resolve the Monday
+    // item that owns this agreement before writing any status back.
+    if (!itemId) {
+      const found = await findItemByAgreementId(agreementId);
+      if (!found) {
+        throw new Error(`No Monday item found with agreementId ${agreementId}`);
+      }
+      itemId = found.itemId;
+      employeeName = employeeName || found.name;
+      logger.info('archiveToBlob-item-resolved', { itemId, agreementId });
+    }
 
     // Update Monday: status → "Archived"
     await monday.updateItemStatus(boardId, itemId, 'Archived').catch(err => {
@@ -40,14 +57,16 @@ async function processArchive(context, queueItem) {
 
     logger.info('archiveToBlob-downloaded', { agreementId, size: signedPdfBuffer.length });
 
-    // Upload to archive blob (permanent storage)
-    const archiveFileName = `signed-offer-${firstName}-${lastName}-${itemId}-${Date.now()}.pdf`;
-    const archiveUrl = await blob.uploadPdf(signedPdfBuffer, archiveFileName, 'pdf-archive');
+    // Upload to archive blob (permanent storage, non-SAS URL for Monday)
+    const safeName = String(employeeName || 'employee').replace(/[^\w-]+/g, '-');
+    const archiveFileName = `signed-offer-${safeName}-${itemId}-${Date.now()}.pdf`;
+    const upload = await blob.uploadPDF('pdf-archive', archiveFileName, signedPdfBuffer);
+    const archiveUrl = upload.url;
 
     logger.info('archiveToBlob-archived', { itemId, url: archiveUrl });
 
     // Update Monday with signed PDF link
-    await monday.updateItemColumn(boardId, itemId, 'link_signed', archiveUrl).catch(err => {
+    await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.signedPdfUrl, { url: archiveUrl, text: 'Signed PDF' }).catch(err => {
       logger.warn('archiveToBlob-link-update-failed', { itemId, error: err.message });
     });
 
@@ -64,10 +83,12 @@ async function processArchive(context, queueItem) {
     };
 
   } catch (error) {
-    logger.error('archiveToBlob-error', { error: error.message, itemId: queueItem?.itemId });
+    logger.error('archiveToBlob-error', { error: error.message, itemId });
 
-    // Update Monday: status → "Archive Error"
-    await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, 'Archive Error').catch(() => {});
+    // Update Monday: status → "Archive Error" (only when we know which item)
+    if (itemId) {
+      await monday.updateItemStatus(boardId, itemId, 'Archive Error').catch(() => {});
+    }
 
     throw error;
   }

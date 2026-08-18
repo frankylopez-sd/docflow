@@ -58,13 +58,13 @@ module.exports = async function (context, queueItem) {
     logger.info('sendForSign-agreement-created', { itemId, agreementId });
 
     // Store agreement ID in Monday
-    await monday.updateItemColumn(boardId, itemId, 'text_agreement', agreementId).catch(err => {
+    await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.agreementId, agreementId).catch(err => {
       logger.warn('sendForSign-agreement-id-update-failed', { itemId, error: err.message });
     });
 
     // Store signer details
     const signerDetails = signers.map((s, idx) => `${idx + 1}. ${s.name} (${s.email})`).join('\n');
-    await monday.updateItemColumn(boardId, itemId, 'long_text_signers', signerDetails).catch(err => {
+    await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.signerDetails, { text: signerDetails }).catch(err => {
       logger.warn('sendForSign-signers-update-failed', { itemId, error: err.message });
     });
 
