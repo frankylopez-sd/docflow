@@ -4,3 +4,4 @@ local.settings.json
 coverage/
 *.zip
 .DS_Store
+deploy-stage/
