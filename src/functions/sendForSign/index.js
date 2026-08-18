@@ -1,10 +1,4 @@
 'use strict';
-/**
- * sendForSign: queue-triggered. Creates the Adobe Sign envelope with serial
- * signing order (HR -> Manager -> Employee) and writes the agreementId back
- * to Monday. The signPoller timer is the 30-min fallback if Adobe's webhook
- * never fires.
- */
 
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
@@ -12,62 +6,81 @@ const adobe = require('../../lib/adobe');
 const monday = require('../../lib/monday');
 
 /**
- * Normalize the template's signer list into ordered {email, name} entries.
- * Catalog rows store signers as emails or role placeholders; the placeholder
- * "{employee}" resolves to the onboarding row's email.
+ * sendForSign: Queue-triggered function that routes PDF to Adobe Sign
+ * Serial signing: HR → Manager → Employee (3 signers)
+ * Creates agreement and notifies first signer
  */
-function resolveSigners(templateSigners, msg) {
-  const raw = Array.isArray(templateSigners) && templateSigners.length
-    ? templateSigners
-    : ['{employee}'];
-  const resolved = raw.map((s) => {
-    const entry = typeof s === 'string' ? { email: s } : s;
-    if (entry.email === '{employee}' || /employee/i.test(entry.role || '')) {
-      return { email: msg.employeeEmail, name: msg.employeeName };
-    }
-    return entry;
-  });
-  const missing = resolved.filter((s) => !s.email);
-  if (missing.length) throw new Error('sendForSign: signer list has entries without an email');
-  return resolved;
-}
 
-/**
- * Core pipeline step (exported for tests).
- * @param {Object} msg {boardId, itemId, pdfUrl, signers, employeeEmail, employeeName, templateName}
- */
-async function processSend(msg) {
-  const { boardId, itemId } = msg;
+module.exports = async function (context, queueItem) {
+  const cfg = config.load();
+
   try {
-    const signers = resolveSigners(msg.signers, msg);
-    const envelope = await adobe.createEnvelope(msg.pdfUrl, signers, {
-      name: `${msg.templateName || 'Document'} — ${msg.employeeName || itemId}`,
-      fileName: msg.pdfKey || 'document.pdf',
+    const { boardId, itemId, pdfUrl, firstName, lastName, workEmail, supervisor } = queueItem;
+
+    logger.info('sendForSign-start', { itemId });
+
+    // Update Monday: status → "Sent for Signature"
+    await monday.updateItemStatus(boardId, itemId, 'Sent for Signature').catch(err => {
+      logger.warn('sendForSign-status-update-failed', { itemId, error: err.message });
     });
 
-    await monday.updateStatus(boardId, itemId, {
-      status: 'Sent for Sign',
-      agreementId: envelope.agreementId,
-      signerDetails: envelope.signers,
+    // Define 3 signers in serial order
+    const signers = [
+      {
+        email: 'hr@medwatchers.com', // HR Rep
+        name: 'HR Representative',
+        order: 0
+      },
+      {
+        email: supervisor || 'manager@medwatchers.com', // Manager
+        name: 'Manager',
+        order: 1
+      },
+      {
+        email: workEmail, // Employee
+        name: `${firstName} ${lastName}`,
+        order: 2
+      }
+    ];
+
+    logger.info('sendForSign-creating-agreement', { itemId, signerCount: signers.length });
+
+    // Create Adobe Sign agreement
+    const agreementResult = await adobe.createSigningAgreement({
+      documentUrl: pdfUrl,
+      fileName: `offer-${firstName}-${lastName}.pdf`,
+      signers: signers,
+      message: `Please review and sign the offer letter for ${firstName} ${lastName}`,
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
     });
 
-    logger.event('sign-stage-complete', { itemId, agreementId: envelope.agreementId });
-    return { agreementId: envelope.agreementId, signers: envelope.signers };
-  } catch (err) {
-    logger.error('send-for-sign-failed', err, { boardId, itemId });
-    try {
-      await monday.updateStatus(boardId, itemId, { status: 'Sign Failed' }, { verify: false });
-    } catch (inner) {
-      logger.error('send-for-sign-status-write-failed', inner, { itemId });
-    }
-    throw err;
+    const agreementId = agreementResult.id;
+    logger.info('sendForSign-agreement-created', { itemId, agreementId });
+
+    // Store agreement ID in Monday
+    await monday.updateItemColumn(boardId, itemId, 'text_agreement', agreementId).catch(err => {
+      logger.warn('sendForSign-agreement-id-update-failed', { itemId, error: err.message });
+    });
+
+    // Store signer details
+    const signerDetails = signers.map((s, idx) => `${idx + 1}. ${s.name} (${s.email})`).join('\n');
+    await monday.updateItemColumn(boardId, itemId, 'long_text_signers', signerDetails).catch(err => {
+      logger.warn('sendForSign-signers-update-failed', { itemId, error: err.message });
+    });
+
+    logger.info('sendForSign-complete', { itemId, agreementId });
+
+    context.res = {
+      status: 200,
+      body: { itemId, agreementId, signers: signers.length, status: 'Agreement created and sent to signers' }
+    };
+
+  } catch (error) {
+    logger.error('sendForSign-error', { error: error.message, itemId: queueItem?.itemId });
+
+    // Update Monday: status → "Sign Failed"
+    await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, 'Sign Failed').catch(() => {});
+
+    throw error;
   }
-}
-
-module.exports = async function (context, message) {
-  const msg = typeof message === 'string' ? JSON.parse(message) : message;
-  await processSend(msg);
 };
-
-module.exports.processSend = processSend;
-module.exports.resolveSigners = resolveSigners;

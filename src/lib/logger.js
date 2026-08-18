@@ -61,6 +61,12 @@ const logger = {
     if (ai) ai.trackTrace({ message, severity: 1, properties: _norm(props) });
   },
 
+  debug(message, props) {
+    _emit('debug', message, props);
+    const ai = _getAiClient();
+    if (ai) ai.trackTrace({ message, severity: 0, properties: _norm(props) });
+  },
+
   warn(message, props) {
     _emit('warn', message, props);
     const ai = _getAiClient();

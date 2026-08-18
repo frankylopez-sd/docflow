@@ -1,0 +1,42 @@
+{
+  "scriptFile": "index.js",
+  "bindings": [
+    {
+      "name": "highPriorityItem",
+      "type": "queueTrigger",
+      "direction": "in",
+      "queueName": "docflow-generate-high",
+      "connection": "AzureWebJobsStorage",
+      "cardinality": "one"
+    },
+    {
+      "name": "normalPriorityItem",
+      "type": "queueTrigger",
+      "direction": "in",
+      "queueName": "docflow-generate",
+      "connection": "AzureWebJobsStorage",
+      "cardinality": "one"
+    },
+    {
+      "name": "lowPriorityItem",
+      "type": "queueTrigger",
+      "direction": "in",
+      "queueName": "docflow-generate-batch",
+      "connection": "AzureWebJobsStorage",
+      "cardinality": "one"
+    },
+    {
+      "authLevel": "function",
+      "type": "httpTrigger",
+      "direction": "in",
+      "name": "req",
+      "methods": ["get"],
+      "route": "priorityProcessorStatus"
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "$return"
+    }
+  ]
+}

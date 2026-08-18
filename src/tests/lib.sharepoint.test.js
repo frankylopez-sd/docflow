@@ -255,6 +255,7 @@ describe('sharepoint', () => {
       process.env.SHAREPOINT_TENANT_ID = 'tenant-id';
       process.env.SHAREPOINT_CLIENT_ID = 'client-id';
       process.env.SHAREPOINT_CLIENT_SECRET = 'client-secret';
+      process.env.SHAREPOINT_SITE_ID = 'site-id';
       process.env.SHAREPOINT_DRIVE_ID = 'drive-id';
 
       axios.post.mockResolvedValueOnce({
@@ -300,6 +301,7 @@ describe('sharepoint', () => {
       process.env.SHAREPOINT_TENANT_ID = 'tenant-id';
       process.env.SHAREPOINT_CLIENT_ID = 'client-id';
       process.env.SHAREPOINT_CLIENT_SECRET = 'client-secret';
+      process.env.SHAREPOINT_SITE_ID = 'site-id';
       process.env.SHAREPOINT_DRIVE_ID = 'drive-id';
 
       axios.post.mockResolvedValueOnce({

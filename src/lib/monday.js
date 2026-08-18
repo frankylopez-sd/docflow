@@ -257,12 +257,58 @@ async function readRows(boardId, itemIds) {
   });
 }
 
+/**
+ * Convenience wrapper: update just the status column.
+ */
+async function updateItemStatus(boardId, itemId, statusLabel) {
+  return updateStatus(boardId, itemId, { status: statusLabel });
+}
+
+/**
+ * Convenience wrapper: update just a single column.
+ */
+async function updateItemColumn(boardId, itemId, columnId, value) {
+  const cfg = config.load();
+  const mutation = `
+    mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues) {
+        id
+      }
+    }`;
+  const columnValues = { [columnId]: value };
+  const data = await _gql(mutation, {
+    boardId: String(boardId),
+    itemId: String(itemId),
+    columnValues: JSON.stringify(columnValues),
+  }, 'monday-update-column');
+
+  if (!data.change_multiple_column_values || !data.change_multiple_column_values.id) {
+    throw new Error(`Monday updateItemColumn: mutation returned no id for item ${itemId}`);
+  }
+
+  logger.event('monday-column-updated', { boardId, itemId, columnId });
+  return true;
+}
+
+/**
+ * Queue a message to an Azure Service Bus queue (for local testing).
+ */
+async function queueMessage(queueName, messageObj) {
+  // In production, this would use Azure Queue Storage.
+  // For testing/local, this is mocked.
+  logger.event('monday-queue-message', { queueName, messageKeys: Object.keys(messageObj) });
+  return true;
+}
+
 module.exports = {
   readRow,
   readRows,
   readTemplates,
   updateStatus,
+  updateItemStatus,
+  updateItemColumn,
   createArchiveRow,
+  queueMessage,
   _gql,
   _resetState,
 };

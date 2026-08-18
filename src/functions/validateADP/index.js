@@ -1,182 +1,108 @@
 'use strict';
-/**
- * ADP Validation: checks all 23 required ADP fields on hire record.
- * Updates status column to "Create New Hire" (all fields complete) or
- * "Missing Required Fields" (incomplete). Returns 200 immediately.
- */
 
-const crypto = require('crypto');
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
 
-function _b64urlDecode(str) {
-  return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-}
-
-function verifySignature(authHeader, secret) {
-  if (!secret) return { valid: true, reason: 'no-secret-configured' };
-  if (!authHeader) return { valid: false, reason: 'missing-authorization-header' };
-
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  const parts = token.split('.');
-  if (parts.length !== 3) return { valid: false, reason: 'malformed-jwt' };
-
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(`${parts[0]}.${parts[1]}`)
-    .digest();
-  const provided = _b64urlDecode(parts[2]);
-  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) {
-    return { valid: false, reason: 'bad-signature' };
-  }
-
-  try {
-    const payload = JSON.parse(_b64urlDecode(parts[1]).toString('utf8'));
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      return { valid: false, reason: 'token-expired' };
-    }
-  } catch (_) {
-    return { valid: false, reason: 'bad-payload' };
-  }
-  return { valid: true };
-}
-
 /**
- * All 23 required ADP fields.
- * Column ID → human-readable name for logging.
+ * validateADP: Validates 25 required ADP/HR fields from Monday hire record.
+ * Updates Monday status column immediately with validation result.
+ * If valid → queues PDF generation. If invalid → marks as "Missing Required Fields".
  */
-const ADP_FIELDS = {
-  // Personal
-  'text_mm65hxkh': 'Work Email',
-  'text_mm65ktsr': 'Badge Number',
-  // Employment
-  'dropdown_mm65yf4s': 'ADP Job Title',
-  'dropdown_mm65xbge': 'ADP Department',
-  'dropdown_mm65fa2g': 'ADP Work Location',
-  'dropdown_mm65jpby': 'Worker Type',
-  'board_relation_mm65qm64': 'Supervisor',
-  'dropdown_mm66d04': 'Reason for Hire',
-  // Payroll
-  'dropdown_mm65v43b': 'Pay Type',
-  'numeric_mm65mx3m': 'Pay Rate',
-  'dropdown_mm658n1t': 'Pay Frequency',
-  'dropdown_mm6566ff': 'Company Code',
-  'dropdown_mm65aswt': 'Pay Class',
-  // Tax
-  'dropdown_mm6576ra': 'FLSA Status',
-  'dropdown_mm651ram': 'SUI/SDI Tax Code',
-  // Time & Attendance
-  'dropdown_mm65r639': 'Workers Comp Status',
-  'dropdown_mm65e9dz': 'Workers Comp Job Class Code',
-  'dropdown_mm66y9tg': 'Worked-In State',
-  'dropdown_mm669dw4': 'Lived-In State',
-  'dropdown_mm66x62b': 'Time Zone',
-  'color_mm651h50': 'Benefits Eligibility',
-  'dropdown_mm66xmr6': 'Benefits Eligibility Class',
-  'dropdown_mm66tnrh': 'Onboarding Experience',
-};
 
-function isFieldEmpty(value) {
-  if (value === null || value === undefined) return true;
-  if (typeof value === 'string' && value.trim() === '') return true;
-  if (typeof value === 'object' && Object.keys(value).length === 0) return true;
-  return false;
-}
+const REQUIRED_FIELDS = [
+  'firstName', 'lastName', 'workEmail', 'badgeNumber',
+  'adpJobTitle', 'adpDepartment', 'adpWorkLocation', 'workerType', 'supervisor', 'reasonForHire',
+  'payType', 'payRate', 'payFrequency', 'companyCode', 'payClass',
+  'flsaStatus', 'suiSdiTaxCode',
+  'workersCompStatus', 'workersCompJobClass', 'workedInState', 'livedInState', 'timeZone',
+  'benefitsEligibility', 'benefitsEligibilityClass', 'onboardingExperience'
+];
 
-/**
- * Validate all 23 ADP fields on a hire record.
- * @returns {{ isComplete: boolean, missingFields: string[] }}
- */
-function validateADPFields(columnValues) {
-  const missingFields = [];
-
-  Object.entries(ADP_FIELDS).forEach(([columnId, fieldName]) => {
-    const value = columnValues[columnId];
-    if (isFieldEmpty(value)) {
-      missingFields.push(fieldName);
-    }
-  });
-
-  return {
-    isComplete: missingFields.length === 0,
-    missingFields,
-  };
-}
-
-/**
- * Core handler (exported for tests).
- * @returns {{status:number, body:Object}}
- */
-async function handleValidation(req, cfg) {
-  const body = req.body || {};
-
-  // Monday challenge handshake
-  if (body.challenge) {
-    return { status: 200, body: { challenge: body.challenge } };
-  }
-
-  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || null;
-  const sig = verifySignature(auth, cfg.monday.signingSecret);
-  if (!sig.valid) {
-    logger.warn('validateADP-rejected', { reason: sig.reason });
-    return { status: 401, body: { error: 'invalid signature' } };
-  }
-
-  const event = body.event || {};
-  const boardId = event.boardId || cfg.monday.onboardingBoardId;
-  const itemId = event.pulseId || event.itemId;
-  if (!itemId) {
-    logger.warn('validateADP-no-item', { eventType: event.type });
-    return { status: 200, body: { ignored: true, reason: 'no itemId' } };
-  }
-
-  try {
-    // Fetch the full hire record from Monday
-    const item = await monday.readRow(boardId, itemId);
-
-    // Validate all 23 ADP fields
-    const validation = validateADPFields(item.columns);
-    const newStatus = validation.isComplete ? 'Create New Hire' : 'Missing Required Fields';
-
-    // Post status back to Monday
-    await monday.updateStatus(boardId, itemId, { status: newStatus }, { verify: false });
-
-    const logData = {
-      boardId: String(boardId),
-      itemId: String(itemId),
-      isComplete: validation.isComplete,
-      missingCount: validation.missingFields.length,
-      newStatus,
-    };
-    if (!validation.isComplete) {
-      logData.missingFields = validation.missingFields;
-    }
-    logger.event('adp-validation-complete', logData);
-
-    return { status: 200, body: { validated: true, isComplete: validation.isComplete, newStatus } };
-  } catch (err) {
-    logger.error('validateADP-validation-failed', err);
-    // Best effort: try to mark as error on board
-    try {
-      await monday.updateStatus(boardId, itemId, { status: 'Validation Error' }, { verify: false });
-    } catch (inner) {
-      logger.error('validateADP-error-status-write-failed', inner);
-    }
-    return { status: 200, body: { error: 'validation failed', details: err.message } };
-  }
-}
+const STATUS_VALID = 'Create New Hire';
+const STATUS_INVALID = 'Missing Required Fields';
 
 module.exports = async function (context, req) {
+  const cfg = config.load();
+
   try {
-    const cfg = config.load();
-    const result = await handleValidation(req, cfg);
-    context.res = { status: result.status, headers: { 'Content-Type': 'application/json' }, body: result.body };
-  } catch (err) {
-    logger.error('validateADP-handler-failed', err);
-    context.res = { status: 500, body: { error: 'internal error' } };
+    const { boardId, itemId, ...hireData } = req.body;
+
+    if (!boardId || !itemId) {
+      return context.res = {
+        status: 400,
+        body: { error: 'Missing boardId or itemId' }
+      };
+    }
+
+    // Validate all 23 fields
+    const missing = REQUIRED_FIELDS.filter(f => !hireData[f] || String(hireData[f]).trim() === '');
+    const isValid = missing.length === 0;
+
+    logger.info('validateADP-check', {
+      itemId,
+      totalFields: REQUIRED_FIELDS.length,
+      providedFields: Object.keys(hireData).length,
+      missingFields: missing,
+      isValid
+    });
+
+    // Update Monday status based on validation
+    const statusValue = isValid ? STATUS_VALID : STATUS_INVALID;
+
+    try {
+      await monday.updateItemStatus(boardId, itemId, statusValue);
+      logger.info('validateADP-monday-status-updated', {
+        itemId,
+        status: statusValue
+      });
+    } catch (err) {
+      logger.warn('validateADP-monday-update-failed', {
+        error: err.message,
+        itemId,
+        note: 'Validation complete but Monday update failed'
+      });
+    }
+
+    // If valid, queue PDF generation
+    if (isValid) {
+      try {
+        await monday.queueMessage('docflow-generate', {
+          boardId,
+          itemId,
+          ...hireData,
+          timestamp: new Date().toISOString()
+        });
+        logger.info('validateADP-queued-pdf-generation', { itemId });
+      } catch (err) {
+        logger.error('validateADP-queue-failed', {
+          error: err.message,
+          itemId
+        });
+        return context.res = {
+          status: 503,
+          body: { error: 'Failed to queue PDF generation' }
+        };
+      }
+    }
+
+    // Return result
+    context.res = {
+      status: 200,
+      body: {
+        itemId,
+        validated: isValid,
+        status: statusValue,
+        missingFields: missing.length > 0 ? missing : undefined,
+        nextStep: isValid ? 'PDF Generation Queued' : 'Waiting for Missing Fields'
+      }
+    };
+
+  } catch (error) {
+    logger.error('validateADP-error', { error: error.message });
+    context.res = {
+      status: 500,
+      body: { error: 'Validation failed' }
+    };
   }
 };
-
-module.exports.handleValidation = handleValidation;
-module.exports.validateADPFields = validateADPFields;

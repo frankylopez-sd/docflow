@@ -372,6 +372,63 @@ async function getSignedPDF(agreementId) {
   return buffer;
 }
 
+// ---------------------------------------------------------------------------
+// High-level wrappers for document generation and signing
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate an offer letter PDF using Adobe PDF Services.
+ * Uses a hardcoded template ID (can be made configurable).
+ * @param {Object} mergeData  {firstName, lastName, jobTitle, department, email, supervisor, compensation, frequency, startDate, generatedDate}
+ * @returns {Promise<Buffer>} PDF buffer
+ */
+async function generateOfferLetter(mergeData) {
+  // Template ID from Adobe PDF Services Asset (uploaded via console).
+  // For production, store this in config or Monday board.
+  const OFFER_LETTER_TEMPLATE_ID = process.env.ADOBE_TEMPLATE_ID_OFFER_LETTER || 'default-offer-letter';
+
+  const schema = [
+    'firstName', 'lastName', 'jobTitle', 'department',
+    'email', 'supervisor', 'compensation', 'frequency', 'startDate', 'generatedDate'
+  ];
+
+  const { buffer } = await createPDF(OFFER_LETTER_TEMPLATE_ID, mergeData, schema);
+  return buffer;
+}
+
+/**
+ * Download the fully-signed PDF (alias for getSignedPDF).
+ * @param {string} agreementId Adobe Sign agreement ID
+ * @returns {Promise<Buffer>} PDF buffer
+ */
+async function downloadSignedDocument(agreementId) {
+  return getSignedPDF(agreementId);
+}
+
+/**
+ * Create a signing agreement (wrapper around createEnvelope with better ergonomics).
+ * @param {Object} opts {documentUrl, fileName, signers, message, dueDate}
+ * @returns {Promise<{id:string, signers:Array}>}
+ */
+async function createSigningAgreement(opts) {
+  const { documentUrl, fileName, signers, message, dueDate } = opts;
+
+  if (!documentUrl) throw new Error('createSigningAgreement: documentUrl is required');
+  if (!signers || !Array.isArray(signers)) throw new Error('createSigningAgreement: signers array is required');
+
+  const envelope = await createEnvelope(documentUrl, signers, {
+    fileName: fileName || 'document.pdf',
+    name: `Offer Letter - ${signers[signers.length - 1].name || 'Employee'}`,
+    message: message || 'Please review and sign this document'
+  });
+
+  return {
+    id: envelope.agreementId,
+    signers: envelope.signers,
+    dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  };
+}
+
 module.exports = {
   getToken,
   createPDF,
@@ -381,5 +438,8 @@ module.exports = {
   ensureWebhook,
   getAgreementStatus,
   getSignedPDF,
+  downloadSignedDocument,
+  generateOfferLetter,
+  createSigningAgreement,
   _resetState,
 };
