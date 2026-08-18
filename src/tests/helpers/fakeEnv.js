@@ -140,6 +140,10 @@ function installRoutes(axios, backend, overrides = {}) {
     if (url.includes('/oauth/v2/refresh')) {
       return { data: { access_token: 'sign-refreshed-token', expires_in: 3600 } };
     }
+    if (url.endsWith('/assets')) {
+      // PDF Services asset creation (template upload staging)
+      return { data: { uploadUri: 'https://pdf.mock/upload/tpl', assetID: 'TPL-ASSET-1' } };
+    }
     if (url.includes('/operation/documentgeneration')) {
       if (overrides.pdfGenFails) {
         const err = new Error('Adobe PDF Services unavailable');
@@ -168,6 +172,13 @@ function installRoutes(axios, backend, overrides = {}) {
       return { data: { id: 'AGR-42' } };
     }
     throw new Error(`unexpected POST ${url}`);
+  });
+
+  // uploadAsset PUTs the template bytes to the staging URI.
+  if (!axios.put) axios.put = jest.fn();
+  axios.put.mockImplementation(async (url) => {
+    if (url.includes('pdf.mock/upload')) return { status: 200, data: {} };
+    throw new Error(`unexpected PUT ${url}`);
   });
 
   axios.get.mockImplementation(async (url) => {

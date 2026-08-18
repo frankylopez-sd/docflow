@@ -377,23 +377,88 @@ async function getSignedPDF(agreementId) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Upload a document as a PDF Services asset (required before doc generation).
+ * PDF Services assets are TRANSIENT (~24h) — never persist their IDs.
+ * @param {Buffer} buffer     file contents
+ * @param {string} mediaType  e.g. docx mime type
+ * @returns {Promise<string>} assetID
+ */
+async function uploadAsset(buffer, mediaType) {
+  const cfg = config.load();
+  await _limiter().acquire();
+  const headers = await _pdfHeaders();
+
+  const res = await retry(async () => axios.post(
+    `${cfg.adobe.pdfServicesUrl}/assets`,
+    { mediaType },
+    { headers, timeout: 30000 }
+  ), { retries: 3, label: 'pdf-asset-create' });
+
+  const { uploadUri, assetID } = res.data;
+  await retry(async () => axios.put(uploadUri, buffer, {
+    headers: { 'Content-Type': mediaType },
+    timeout: 60000,
+    maxBodyLength: Infinity,
+  }), { retries: 3, label: 'pdf-asset-upload' });
+
+  return assetID;
+}
+
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+// Adobe assets expire (~24h); cache the uploaded template well under that.
+const TEMPLATE_ASSET_TTL_MS = 12 * 60 * 60 * 1000;
+let _templateAssetCache = { key: null, assetID: null, uploadedAt: 0 };
+
+/**
+ * Resolve a fresh Adobe asset ID for the offer-letter template.
+ * The durable copy lives in blob storage (pdf-templates container) — Adobe's
+ * copy is transient, so it is re-uploaded on expiry.
+ */
+async function _resolveTemplateAsset(force = false) {
+  const blob = require('./blob'); // late require avoids circular import at load
+  const templateKey = process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER || 'offer-letter-clerk.docx';
+
+  const fresh = _templateAssetCache.assetID
+    && _templateAssetCache.key === templateKey
+    && (Date.now() - _templateAssetCache.uploadedAt) < TEMPLATE_ASSET_TTL_MS;
+  if (fresh && !force) return _templateAssetCache.assetID;
+
+  const templateBuffer = await blob.downloadPDF('pdf-templates', templateKey);
+  const assetID = await uploadAsset(templateBuffer, DOCX_MIME);
+  _templateAssetCache = { key: templateKey, assetID, uploadedAt: Date.now() };
+  logger.event('adobe-template-asset-uploaded', { templateKey, assetID });
+  return assetID;
+}
+
+/**
  * Generate an offer letter PDF using Adobe PDF Services.
- * Uses a hardcoded template ID (can be made configurable).
+ * Template lives durably in blob storage; a transient Adobe asset is
+ * uploaded on demand (and re-uploaded if Adobe reports it expired).
  * @param {Object} mergeData  {firstName, lastName, jobTitle, department, email, supervisor, compensation, frequency, startDate, generatedDate}
  * @returns {Promise<Buffer>} PDF buffer
  */
 async function generateOfferLetter(mergeData) {
-  // Template ID from Adobe PDF Services Asset (uploaded via console).
-  // For production, store this in config or Monday board.
-  const OFFER_LETTER_TEMPLATE_ID = process.env.ADOBE_TEMPLATE_ID_OFFER_LETTER || 'default-offer-letter';
-
   const schema = [
     'firstName', 'lastName', 'jobTitle', 'department',
     'email', 'supervisor', 'compensation', 'frequency', 'startDate', 'generatedDate'
   ];
 
-  const { buffer } = await createPDF(OFFER_LETTER_TEMPLATE_ID, mergeData, schema);
-  return buffer;
+  let templateId = await _resolveTemplateAsset();
+  try {
+    const { buffer } = await createPDF(templateId, mergeData, schema);
+    return buffer;
+  } catch (err) {
+    // Cached asset may have expired server-side — re-upload once and retry.
+    const status = err.response && err.response.status;
+    if (status === 404 || status === 400) {
+      logger.warn('adobe-template-asset-stale-retrying', { status });
+      templateId = await _resolveTemplateAsset(true);
+      const { buffer } = await createPDF(templateId, mergeData, schema);
+      return buffer;
+    }
+    throw err;
+  }
 }
 
 /**

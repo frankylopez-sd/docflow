@@ -138,6 +138,12 @@ function create() {
       store.clear();
       failUpload.clear();
       corrupt.clear();
+      // The offer-letter template is a durable fixture of the real
+      // pdf-templates container — every pipeline test expects it to exist.
+      store.set(k('teststore', 'pdf-templates', 'offer-letter-clerk.docx'), {
+        data: Buffer.from('PK-fake-docx-template'),
+        lastModified: new Date(),
+      });
     },
   };
 }
