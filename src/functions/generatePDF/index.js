@@ -12,6 +12,37 @@ const monday = require('../../lib/monday');
  * Uploads temp PDF to blob storage, queues for signing
  */
 
+/**
+ * Map hire-role signals to the durable template blob in pdf-templates.
+ * Precedence: pharmacist → intern → sales → pay class → FLSA status.
+ */
+function selectTemplate({ adpJobTitle, payClass, flsaStatus, workerType }) {
+  const title = String(adpJobTitle || '');
+  const cls = String(payClass || '');
+  const flsa = String(flsaStatus || '');
+  const type = String(workerType || '');
+
+  if (/^pharmacist\b/i.test(title) || /^rph$/i.test(cls)) {
+    return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_RPH || 'offer-letter-rph.docx';
+  }
+  if (/intern/i.test(type) || /intern/i.test(title)) {
+    return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_INTERN || 'offer-letter-paid-intern.docx';
+  }
+  if (/sales/i.test(title)) {
+    return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_SALES || 'offer-letter-sales-exempt.docx';
+  }
+  if (/^clerk$/i.test(cls)) {
+    return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER || 'offer-letter-clerk.docx';
+  }
+  if (/non-?exempt/i.test(flsa)) {
+    return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_NON_EXEMPT || 'offer-letter-other-non-exempt.docx';
+  }
+  if (/exempt/i.test(flsa)) {
+    return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_EXEMPT || 'offer-letter-other-exempt.docx';
+  }
+  return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER || 'offer-letter-clerk.docx';
+}
+
 async function processGenerate(context, queueItem) {
   const cfg = config.load();
 
@@ -22,7 +53,7 @@ async function processGenerate(context, queueItem) {
   }
 
   try {
-    let { boardId, itemId, firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, startDate } = queueItem;
+    let { boardId, itemId, firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, payClass, flsaStatus, workerType, startDate } = queueItem;
 
     logger.info('generatePDF-start', { itemId });
 
@@ -38,6 +69,9 @@ async function processGenerate(context, queueItem) {
       supervisor = supervisor || hire.supervisor;
       payRate = payRate || hire.payRate;
       payFrequency = payFrequency || hire.payFrequency;
+      payClass = payClass || hire.payClass;
+      flsaStatus = flsaStatus || hire.flsaStatus;
+      workerType = workerType || hire.workerType;
       startDate = startDate || hire.startDate;
       logger.info('generatePDF-hydrated-from-monday', { itemId });
     }
@@ -61,12 +95,12 @@ async function processGenerate(context, queueItem) {
       generatedDate: new Date().toISOString().split('T')[0]
     };
 
-    // Select the offer-letter template by role: licensed pharmacists get the
-    // salaried/licensure letter, everyone else the standard hourly letter.
-    const isPharmacist = /^pharmacist\b/i.test(String(adpJobTitle || ''));
-    const templateKey = isPharmacist
-      ? (process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_RPH || 'offer-letter-rph.docx')
-      : (process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER || 'offer-letter-clerk.docx');
+    // Select the offer-letter template from the hire's role signals.
+    // Board vocabulary: payClass ∈ {Clerk, RPH, Management}, flsaStatus ∈
+    // {Exempt, Non-Exempt}, workerType ∈ {Full-Time, Part-Time, Temp, Contract}.
+    // Intern and Sales letters exist in pdf-templates and are selected once the
+    // board grows those values (or via env override).
+    const templateKey = selectTemplate({ adpJobTitle, payClass, flsaStatus, workerType });
 
     // Call Adobe PDF Services to merge template
     logger.info('generatePDF-calling-adobe', { itemId, templateKey });
@@ -122,3 +156,4 @@ async function processGenerate(context, queueItem) {
 // Export for Azure Functions (default) and tests (named)
 module.exports = processGenerate;
 module.exports.processGenerate = processGenerate;
+module.exports.selectTemplate = selectTemplate;

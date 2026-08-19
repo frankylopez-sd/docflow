@@ -337,6 +337,19 @@ describe('generatePDF merge-data contract', () => {
       .toEqual({ fields: ['firstName', 'lastName'], missing: [] });
   });
 
+  test('selectTemplate maps role signals to the right template blob', () => {
+    const st = generatePDF.selectTemplate;
+    expect(st({ adpJobTitle: 'Pharmacist' })).toBe('offer-letter-rph.docx');
+    expect(st({ adpJobTitle: 'Cashier', payClass: 'RPH' })).toBe('offer-letter-rph.docx');
+    expect(st({ adpJobTitle: 'Marketing Intern' })).toBe('offer-letter-paid-intern.docx');
+    expect(st({ adpJobTitle: 'Analyst', workerType: 'Intern' })).toBe('offer-letter-paid-intern.docx');
+    expect(st({ adpJobTitle: 'Sales Executive' })).toBe('offer-letter-sales-exempt.docx');
+    expect(st({ adpJobTitle: 'Pharmacy Associate', payClass: 'Clerk' })).toBe('offer-letter-clerk.docx');
+    expect(st({ adpJobTitle: 'Ops Manager', payClass: 'Management', flsaStatus: 'Non-Exempt' })).toBe('offer-letter-other-non-exempt.docx');
+    expect(st({ adpJobTitle: 'Ops Manager', payClass: 'Management', flsaStatus: 'Exempt' })).toBe('offer-letter-other-exempt.docx');
+    expect(st({ adpJobTitle: 'Pharmacy Tech' })).toBe('offer-letter-clerk.docx'); // no signals -> default
+  });
+
   test('processGenerate maps queue hire fields onto the Adobe merge data', async () => {
     const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
     try {

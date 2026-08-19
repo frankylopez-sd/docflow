@@ -121,6 +121,9 @@ async function fetchHireData(boardId, itemId) {
     supervisor: get(c.supervisorName),
     payRate: get(c.payRate),
     payFrequency: get(c.payFrequency),
+    payClass: get(c.payClass),
+    flsaStatus: get(c.flsaStatus),
+    workerType: get(c.workerType),
     startDate: get(c.startDate, 'Hired Start Date') || get(null, 'Estimated Start Date'),
   };
 }

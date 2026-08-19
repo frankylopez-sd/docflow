@@ -85,6 +85,9 @@ function load(options = {}) {
         supervisorName: env.MONDAY_COL_SUPERVISOR_NAME || 'dropdown_mm65wk46',
         payRate: env.MONDAY_COL_PAY_RATE || 'numeric_mm65mx3m',
         payFrequency: env.MONDAY_COL_PAY_FREQUENCY || 'dropdown_mm658n1t',
+        payClass: env.MONDAY_COL_PAY_CLASS || 'dropdown_mm65aswt',
+        flsaStatus: env.MONDAY_COL_FLSA_STATUS || 'dropdown_mm6576ra',
+        workerType: env.MONDAY_COL_WORKER_TYPE || 'dropdown_mm65jpby',
       },
     },
 
