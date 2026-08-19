@@ -75,6 +75,11 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-final-status-update-failed', { itemId, error: err.message });
     });
 
+    // Downstream kickoff: open the background check and link it to the hire
+    await monday.createBackgroundCheck(boardId, itemId, employeeName ? employeeName.replace(/-/g, ' ') : null).catch(err => {
+      logger.warn('archiveToBlob-bg-check-create-failed', { itemId, error: err.message });
+    });
+
     logger.info('archiveToBlob-complete', { itemId, archiveUrl });
 
     context.res = {

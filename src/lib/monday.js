@@ -154,6 +154,50 @@ async function updateOfferStatus(boardId, itemId, label) {
 }
 
 /**
+ * Downstream kickoff: create a Background Check item for a completed hire and
+ * link it back to the hire row on the Onboarding board.
+ * @returns {Promise<string|null>} new background-check item id
+ */
+async function createBackgroundCheck(hireBoardId, hireItemId, employeeName) {
+  const cfg = config.load();
+  const bg = cfg.monday.backgroundCheck;
+  if (!bg || !bg.boardId) return null;
+
+  const columnValues = {
+    [bg.columns.candidate]: String(employeeName || ''),
+    [bg.columns.status]: { label: 'Not Started' },
+    [bg.columns.priority]: { label: 'High' },
+    [bg.columns.checkType]: { labels: ['Criminal', 'Employment'] },
+  };
+
+  const mutation = `
+    mutation ($boardId: ID!, $groupId: String, $itemName: String!, $columnValues: JSON) {
+      create_item (board_id: $boardId, group_id: $groupId, item_name: $itemName, column_values: $columnValues, create_labels_if_missing: true) {
+        id
+      }
+    }`;
+  const data = await _gql(mutation, {
+    boardId: String(bg.boardId),
+    groupId: bg.groupId,
+    itemName: `BG Check — ${employeeName || hireItemId}`,
+    columnValues: JSON.stringify(columnValues),
+  }, 'monday-create-bg-check');
+
+  const bgItemId = data.create_item && data.create_item.id;
+  if (!bgItemId) throw new Error('createBackgroundCheck: create_item returned no id');
+
+  // Link the hire row to its background check (non-fatal if the relation write fails)
+  try {
+    await updateItemColumn(hireBoardId, hireItemId, bg.hireRelationColumn, { item_ids: [Number(bgItemId)] });
+  } catch (err) {
+    logger.warn('bg-check-relation-link-failed', { hireItemId, bgItemId, error: err.message });
+  }
+
+  logger.event('background-check-created', { hireItemId, bgItemId, employeeName });
+  return bgItemId;
+}
+
+/**
  * Read the template catalog board.
  * @returns {Promise<Array>} [{itemId, templateName, adobeTemplateId, dataFields, signers}]
  */
@@ -375,6 +419,7 @@ module.exports = {
   fetchHireData,
   getColumnValueJson,
   updateOfferStatus,
+  createBackgroundCheck,
   updateStatus,
   updateItemStatus,
   updateItemColumn,

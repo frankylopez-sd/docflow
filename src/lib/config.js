@@ -97,6 +97,19 @@ function load(options = {}) {
         approved: env.MONDAY_OFFER_LABEL_APPROVED || 'Packaged Approved',
         sent: env.MONDAY_OFFER_LABEL_SENT || 'Offer Sent',
       },
+      // Downstream kickoff: Background Checks board (created when onboarding completes)
+      backgroundCheck: {
+        boardId: env.MONDAY_BG_CHECK_BOARD_ID || '18422046606',
+        groupId: env.MONDAY_BG_CHECK_GROUP_ID || 'topics',
+        columns: {
+          candidate: env.MONDAY_BG_COL_CANDIDATE || 'text_mm58pfqv',
+          status: env.MONDAY_BG_COL_STATUS || 'color_mm58kpeb',
+          priority: env.MONDAY_BG_COL_PRIORITY || 'color_mm58mdte',
+          checkType: env.MONDAY_BG_COL_CHECK_TYPE || 'dropdown_mm58eqat',
+        },
+        // Relation column ON THE ONBOARDING BOARD linking hire -> background check
+        hireRelationColumn: env.MONDAY_COL_BG_RELATION || 'board_relation_mm5btrgq',
+      },
     },
 
     storage: {
