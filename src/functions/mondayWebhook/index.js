@@ -117,14 +117,40 @@ async function handleWebhook(req, mondayRow = null) {
 
   const isColumnEvent = event.type === 'update_column_value' || event.type === 'change_column_value';
 
-  // Status Exclusion List (anti-recursion): this system writes to the status
-  // column itself, and each write re-triggers a Monday webhook. Drop every
-  // status-column event immediately with 200 to break the feedback loop.
+  // Status narrator: the automation's own writes always advance exactly one
+  // step (or land on a known action label), so an in-order change stays
+  // silent. Anything else is a manual drag — narrate what the label means,
+  // where it sits in the order, and why dragging doesn't drive the machine.
+  // Comments never trigger status webhooks, so this cannot recurse.
+  const labelText = (event.value && event.value.label && (event.value.label.text || event.value.label))
+    || (typeof event.value === 'string' ? event.value : null);
+  const prevText = (event.previousValue && event.previousValue.label
+    && (event.previousValue.label.text || event.previousValue.label)) || null;
+
   if (isColumnEvent && event.columnId === cfg.monday.columns.status) {
-    logger.debug('monday-webhook-status-excluded', { itemId, columnId: event.columnId });
+    const order = cfg.monday.statusOrder;
+    const newIdx = order.indexOf(labelText);
+    const prevIdx = prevText ? order.indexOf(prevText) : -1;
+    const inOrder = newIdx !== -1 && (prevIdx === -1 || newIdx === prevIdx + 1 || newIdx === prevIdx);
+    const isSystemLabel = [
+      cfg.monday.statusLabels.missingFields, cfg.monday.statusLabels.pdfFailed, cfg.monday.statusLabels.signFailed,
+      'Create New Hire', 'Ready to Create',
+    ].includes(labelText);
+
+    if (!inOrder && !isSystemLabel && newIdx !== -1) {
+      const stepNo = newIdx + 1;
+      const next = order[newIdx + 1] || 'the end';
+      await monday.logAction(itemId,
+        `ℹ️ Status was set to "${labelText}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: dragging this column doesn't run anything.\n\n`
+        + `WHAT "${labelText}" MEANS: step ${stepNo} of ${order.length} in the journey. Next after it: "${next}".\n\n`
+        + `THE ORDER: ${order.join(' → ')}\n\n`
+        + `WHAT ACTUALLY DRIVES THE MACHINE: ☑ Generate Docs (builds the letter) and Offer Letter Status "${cfg.monday.offerLabels.approved}" (sends it). Everything else moves by itself.`
+      ).catch(() => {});
+    }
+    logger.debug('monday-webhook-status-narrated', { itemId, labelText, prevText, inOrder });
     return {
       status: 200,
-      body: { ignored: true, reason: 'status column event (exclusion list)' },
+      body: { ignored: true, reason: 'status column event (exclusion list)', narrated: !inOrder },
       queueMessage: null,
       warnings: [],
     };
@@ -243,10 +269,22 @@ async function handleWebhook(req, mondayRow = null) {
         warnings: [],
       };
     }
-    logger.debug('monday-webhook-offer-status-ignored', { itemId, label });
+    // Manual drag onto an automation-owned label? Narrate why nothing happens.
+    const oOrder = cfg.monday.offerOrder;
+    const oIdx = oOrder.indexOf(label);
+    const oPrevIdx = prevText ? oOrder.indexOf(prevText) : -1;
+    const oInOrder = oIdx !== -1 && (oPrevIdx === -1 || oIdx === oPrevIdx + 1 || oIdx === oPrevIdx);
+    if (!oInOrder && oIdx !== -1) {
+      await monday.logAction(itemId,
+        `ℹ️ Offer Letter Status was set to "${label}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: this label is automation-owned, selecting it by hand doesn't ${label.includes('Signing') ? 'send anything for signature' : 'run anything'}.\n\n`
+        + `THE OFFER ORDER: ${oOrder.join(' → ')}\n\n`
+        + `THE TWO CONTROLS: ☑ Generate Docs builds the letter · "${cfg.monday.offerLabels.approved}" sends it (only works once a letter exists). Everything else moves by itself.`
+      ).catch(() => {});
+    }
+    logger.debug('monday-webhook-offer-status-ignored', { itemId, label, narrated: !oInOrder });
     return {
       status: 200,
-      body: { ignored: true, reason: 'offer status change is not the approval label' },
+      body: { ignored: true, reason: 'offer status change is not the approval label', narrated: !oInOrder },
       queueMessage: null,
       warnings: [],
     };

@@ -120,6 +120,15 @@ function load(options = {}) {
         pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed',
         signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed',
       },
+      // Ordered journeys (drive the status-narrator comments)
+      statusOrder: [
+        '① 👤 Send', '② ⏳ Waiting', '③ 👤 Fill', '④ ⚙️ Generating',
+        '⑤ ⚙️ Signing', '⑥ ⚙️ Archiving', '⑦ 🎉 Done',
+      ],
+      offerOrder: [
+        '① Idle', '② ⚙️ Generating', '③ 👤 Review', '④ ✅ Approve',
+        '⑤ ⚙️ Signing', '⑥ 🎉 Signed',
+      ],
       // ATS intake: candidates flip to the hired status on an ATS board →
       // an Onboarding item is created and linked (mirror columns populate).
       atsIntake: {
