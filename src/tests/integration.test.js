@@ -1,8 +1,8 @@
 'use strict';
 /**
  * Integration test: full offline simulation of the pipeline
- *   Monday checkbox -> generatePDF -> "Offer Ready" (HR review gate)
- *   -> HR approval webhook ("Packaged Approved") -> sendForSign
+ *   Monday checkbox -> generatePDF -> "③ 👤 Review Offer (HR)" (HR review gate)
+ *   -> HR approval webhook ("④ ✅ Approved — Send It") -> sendForSign
  *   -> adobeWebhook -> archive
  * All external APIs (Monday GraphQL, Adobe IMS/PDF/Sign, Azure Blob) mocked.
  */
@@ -69,9 +69,9 @@ describe('webhook entry points', () => {
   });
 
   test('offer-status changes other than the approval label are ignored', async () => {
-    // Our own lifecycle writes (Offer Generating/Ready/Sent) re-trigger the
-    // webhook — none of them may queue signing.
-    for (const label of ['Offer Generating', 'Offer Ready', 'Offer Sent']) {
+    // Our own lifecycle writes (Generating/Review/Out for Signature) re-trigger
+    // the webhook — none of them may queue signing.
+    for (const label of ['② ⚙️ Generating Offer', '③ 👤 Review Offer (HR)', '⑤ ⚙️ Out for Signature']) {
       const result = await mondayWebhook.handleWebhook(
         offerStatusEvent(makeMondayJwt('test-signing-secret'), label)
       );
@@ -113,12 +113,13 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(hook.queueMessage).toMatchObject({ boardId: '111', itemId: '555' });
 
     // 2. generate PDF (hydrates hire data from the Monday row) -> temp blob,
-    //    status "Documentation Generating", offer lifecycle ends at "Offer Ready".
-    //    HR review gate: NOTHING is enqueued for signing here.
+    //    status "④ ⚙️ Docs In Progress", offer lifecycle ends at
+    //    "③ 👤 Review Offer (HR)". HR review gate: NOTHING is enqueued for
+    //    signing here.
     const genCtx = makeContext();
     await generatePDF.processGenerate(genCtx, hook.queueMessage);
-    expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
-    expect(backend.rows[555].written[offerCol]).toEqual({ label: 'Offer Ready' });
+    expect(backend.rows[555].written.status).toEqual({ label: '④ ⚙️ Docs In Progress' });
+    expect(backend.rows[555].written[offerCol]).toEqual({ label: '③ 👤 Review Offer (HR)' });
     expect(genCtx.bindings.signQueue).toBeUndefined();
     expect(genCtx.res.status).toBe(200);
     expect(genCtx.res.body.status).toMatch(/awaiting HR review/i);
@@ -127,11 +128,11 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     const tempKeys = [...storageMock.__store.keys()].filter((k) => k.includes('|pdf-temp|'));
     expect(tempKeys).toHaveLength(1);
 
-    // 3. HR approves: offer-status column flips to "Packaged Approved" ->
+    // 3. HR approves: offer-status column flips to "④ ✅ Approved — Send It" ->
     //    webhook routes to the sign queue with a {boardId, itemId} message
     //    (Monday stays the database of record).
     const approveCtx = makeContext();
-    await mondayWebhook(approveCtx, offerStatusEvent(makeMondayJwt('test-signing-secret'), 'Packaged Approved', offerCol));
+    await mondayWebhook(approveCtx, offerStatusEvent(makeMondayJwt('test-signing-secret'), '④ ✅ Approved — Send It', offerCol));
     expect(approveCtx.res.status).toBe(200);
     expect(approveCtx.res.body).toMatchObject({ queued: true, itemId: '555', route: 'sign' });
     expect(approveCtx.bindings.generateQueue).toBeUndefined(); // approval never re-generates
@@ -140,14 +141,14 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(new Date(signMsg.approvedAt).getTime()).not.toBeNaN();
 
     // 4. send for signature: hydrates the PDF link + hire fields from Monday,
-    //    creates the agreement, offer lifecycle -> "Offer Sent"
+    //    creates the agreement, offer lifecycle -> "⑤ ⚙️ Out for Signature"
     const signCtx = makeContext();
     await sendForSign(signCtx, signMsg);
     expect(signCtx.res.body.agreementId).toBe('AGR-42');
     expect(signCtx.res.body.signers).toBe(3); // HR -> Manager -> Employee, serial
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
+    expect(backend.rows[555].written.status).toEqual({ label: '⑤ ⚙️ Out for Signature' });
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
-    expect(backend.rows[555].written[offerCol]).toEqual({ label: 'Offer Sent' });
+    expect(backend.rows[555].written[offerCol]).toEqual({ label: '⑤ ⚙️ Out for Signature' });
 
     // 5. Adobe completion webhook -> archive queue message
     const adobeResult = await adobeWebhook.handleAdobeWebhook({
@@ -181,24 +182,26 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(archiveKey).toBeDefined();
     expect(Buffer.compare(storageMock.__store.get(archiveKey).data, SIGNED_BYTES)).toBe(0);
 
-    expect(backend.rows[555].written.status).toEqual({ label: 'Onboarding Complete' });
+    expect(backend.rows[555].written.status).toEqual({ label: '⑦ 🎉 Onboarding Complete' });
+    expect(backend.rows[555].written[offerCol]).toEqual({ label: '⑥ 🎉 Signed & Archived' });
     expect(backend.rows[555].written.link_signed).toMatchObject({ url: archived.archiveUrl });
   });
 });
 
 describe('failure recovery', () => {
-  test('PDF generation failure marks the row PDF Gen Failed, then recovery succeeds', async () => {
+  test('PDF generation failure marks the row PDF Failed, then recovery succeeds', async () => {
     installRoutes(axios, backend, { pdfGenFails: true });
     const msg = { boardId: '111', itemId: '555' };
     await expect(generatePDF.processGenerate(makeContext(), msg)).rejects.toThrow(/unavailable/);
-    expect(backend.rows[555].written.status).toEqual({ label: 'PDF Gen Failed' });
+    expect(backend.rows[555].written.status).toEqual({ label: '❌ PDF Failed — See Updates' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '❌ Failed — See Updates' });
 
     // Adobe comes back -> the queue redelivery succeeds and parks at the HR gate
     installRoutes(axios, backend);
     const retryCtx = makeContext();
     await generatePDF.processGenerate(retryCtx, msg);
-    expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
-    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: 'Offer Ready' });
+    expect(backend.rows[555].written.status).toEqual({ label: '④ ⚙️ Docs In Progress' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '③ 👤 Review Offer (HR)' });
     expect(backend.rows[555].written.link_pdf.url).toContain('pdf-temp');
     expect(retryCtx.bindings.signQueue).toBeUndefined(); // signing waits for HR approval
   });
@@ -207,7 +210,7 @@ describe('failure recovery', () => {
     // Generate the offer, then HR approves -> sign message ({boardId, itemId})
     await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
     const approval = await mondayWebhook.handleWebhook(
-      offerStatusEvent(makeMondayJwt('test-signing-secret'), 'Packaged Approved', config.load().monday.columns.offerStatus)
+      offerStatusEvent(makeMondayJwt('test-signing-secret'), '④ ✅ Approved — Send It', config.load().monday.columns.offerStatus)
     );
     expect(approval.status).toBe(200);
     const signMsg = approval.signMessage;
@@ -215,14 +218,15 @@ describe('failure recovery', () => {
 
     installRoutes(axios, backend, { signFails: true });
     await expect(sendForSign(makeContext(), signMsg)).rejects.toThrow(/unavailable/);
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sign Failed' });
+    expect(backend.rows[555].written.status).toEqual({ label: '❌ Sign Failed — See Updates' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '❌ Failed — See Updates' });
 
     installRoutes(axios, backend);
     const retryCtx = makeContext();
     await sendForSign(retryCtx, signMsg);
     expect(retryCtx.res.body.agreementId).toBe('AGR-42');
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
-    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: 'Offer Sent' });
+    expect(backend.rows[555].written.status).toEqual({ label: '⑤ ⚙️ Out for Signature' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '⑤ ⚙️ Out for Signature' });
   });
 
   test('archive failure for unknown agreement throws and archives nothing', async () => {

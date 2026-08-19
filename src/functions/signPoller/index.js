@@ -30,7 +30,7 @@ async function findPendingItems() {
   const data = await monday._gql(query, {
     boardId: String(cfg.monday.onboardingBoardId),
     columnId: cfg.monday.columns.status,
-    value: 'Sent for Sign',
+    value: cfg.monday.statusLabels.outForSignature,
   }, 'monday-find-pending-sign');
 
   const items = (data.items_page_by_column_values && data.items_page_by_column_values.items) || [];

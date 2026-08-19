@@ -46,14 +46,14 @@ async function processArchive(context, queueItem) {
     // at-least-once. If this hire is already complete, the archive ran —
     // exit successfully without duplicating blobs, updates, or BG checks.
     const current = await monday.readRow(boardId, itemId).catch(() => null);
-    if (current && current.columns[cfg.monday.columns.status] === 'Onboarding Complete') {
+    if (current && current.columns[cfg.monday.columns.status] === cfg.monday.statusLabels.complete) {
       logger.event('archiveToBlob-already-complete', { itemId, agreementId });
       context.res = { status: 200, body: { itemId, status: 'already complete (idempotent replay)' } };
       return;
     }
 
-    // Update Monday: status → "Archived"
-    await monday.updateItemStatus(boardId, itemId, 'Archived').catch(err => {
+    // Update Monday: status → ⑥ Archiving
+    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.archiving).catch(err => {
       logger.warn('archiveToBlob-status-update-failed', { itemId, error: err.message });
     });
 
@@ -80,9 +80,12 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-link-update-failed', { itemId, error: err.message });
     });
 
-    // Final status: Onboarding Complete
-    await monday.updateItemStatus(boardId, itemId, 'Onboarding Complete').catch(err => {
+    // Final status: ⑦ Onboarding Complete + offer column ⑥ Signed & Archived
+    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.complete).catch(err => {
       logger.warn('archiveToBlob-final-status-update-failed', { itemId, error: err.message });
+    });
+    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.signed).catch(err => {
+      logger.warn('archiveToBlob-offer-signed-update-failed', { itemId, error: err.message });
     });
 
     // Downstream kickoff: open the background check and link it to the hire
@@ -101,8 +104,9 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-adp-readiness-failed', { itemId, error: err.message });
     }
 
-    await monday.postUpdate(itemId,
-      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (see Signed PDF link). Background check opened and linked.${adpLine}`
+    await monday.logAction(itemId,
+      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (see Signed PDF link). Background check opened and linked.${adpLine}`,
+      `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
     logger.info('archiveToBlob-complete', { itemId, archiveUrl });

@@ -185,6 +185,28 @@ async function hasUpdates(itemId) {
   return Array.isArray(updates) && updates.length > 0;
 }
 
+/** Current time in Pacific local time (the team's clock). */
+function ptTimestamp() {
+  const formatted = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+  }).format(new Date());
+  return `${formatted} PT`;
+}
+
+/**
+ * Log an action on an item as a timestamped update: a Pacific-time stamp,
+ * a plain-language line anyone can read, and the technical detail beneath it.
+ * @param {string|number} itemId
+ * @param {string} plain      what happened / what to do, in human words
+ * @param {string} [technical] the precise technical explanation
+ */
+async function logAction(itemId, plain, technical) {
+  const body = `🕐 ${ptTimestamp()}\n${plain}` + (technical ? `\n\n🔧 Technical: ${technical}` : '');
+  return postUpdate(itemId, body);
+}
+
 /**
  * Post a visible update (comment) on an item — Monday notifies subscribers.
  */
@@ -520,6 +542,7 @@ module.exports = {
   createBackgroundCheck,
   findItemsByName,
   postUpdate,
+  logAction,
   hasUpdates,
   updateItemColumns,
   adpReadiness,

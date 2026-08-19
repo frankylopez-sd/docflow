@@ -37,8 +37,8 @@ module.exports = async function (context, queueItem) {
       logger.info('sendForSign-hydrated-from-monday', { itemId });
     }
 
-    // Update Monday: status → "Sent for Signature"
-    await monday.updateItemStatus(boardId, itemId, 'Sent for Signature').catch(err => {
+    // Update Monday: status → ⑤ Out for Signature
+    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.outForSignature).catch(err => {
       logger.warn('sendForSign-status-update-failed', { itemId, error: err.message });
     });
 
@@ -94,8 +94,10 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-offer-sent-update-failed', { itemId, error: err.message });
     });
 
-    await monday.postUpdate(itemId,
-      `✉️ Offer sent for signature (agreement ${agreementId}). Signing order: ${signers.map(s => s.name).join(' → ')}.`
+    await monday.logAction(itemId,
+      `✉️ Offer is out for signature. Signing order: ${signers.map(s => s.name).join(' → ')}. `
+      + `Nothing to do — this item updates automatically as each person signs.`,
+      `Adobe Sign agreement ${agreementId} created with ${signers.length} serial signers; completion webhook + 30-min poller are watching it.`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
     logger.info('sendForSign-complete', { itemId, agreementId });
@@ -108,13 +110,16 @@ module.exports = async function (context, queueItem) {
   } catch (error) {
     logger.error('sendForSign-error', { error: error.message, itemId: queueItem?.itemId });
 
-    // Update Monday: status → "Sign Failed"
-    await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, 'Sign Failed').catch(() => {});
+    // Update Monday: status → sign failed
+    const failCfg = config.load();
+    await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.statusLabels.signFailed).catch(() => {});
+    await monday.updateOfferStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.offerLabels.failed).catch(() => {});
     // Notify once (first attempt), not on every automatic retry
     const attempt = context?.bindingData?.dequeueCount;
     if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
-      await monday.postUpdate(queueItem.itemId,
-        `❌ Sending for signature failed: ${error.message}. The system retries automatically; to re-trigger manually, set Offer Letter Status back to "Packaged Approved".`
+      await monday.logAction(queueItem.itemId,
+        `❌ Sending for signature failed. The system retries automatically; to re-trigger manually, set Offer Letter Status back to "${failCfg.monday.offerLabels.approved}".`,
+        `sendForSign error: ${error.message}`
       ).catch(() => {});
     }
 

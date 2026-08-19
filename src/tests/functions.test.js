@@ -78,10 +78,11 @@ describe('Azure Function entrypoints', () => {
     // hydrated from the Monday row (Monday is the database of record).
     await generatePDF(ctx, { boardId: '111', itemId: '555' });
     // HR review gate: generatePDF no longer enqueues signing. The offer parks
-    // at "Offer Ready" until HR flips the offer status to "Packaged Approved".
+    // at "③ 👤 Review Offer (HR)" until HR flips the offer status to
+    // "④ ✅ Approved — Send It".
     expect(ctx.bindings.signQueue).toBeUndefined();
-    expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
-    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: 'Offer Ready' });
+    expect(backend.rows[555].written.status).toEqual({ label: '④ ⚙️ Docs In Progress' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '③ 👤 Review Offer (HR)' });
     expect(backend.rows[555].written.link_pdf.url).toContain('pdf-temp');
     expect(ctx.res.status).toBe(200);
     expect(ctx.res.body.status).toMatch(/awaiting HR review/i);
@@ -90,7 +91,7 @@ describe('Azure Function entrypoints', () => {
   test('mondayWebhook entry routes HR approval of the offer to the sign queue', async () => {
     const ctx = makeContext();
     await mondayWebhook(ctx, offerStatusEvent(
-      makeMondayJwt('test-signing-secret'), 'Packaged Approved', config.load().monday.columns.offerStatus
+      makeMondayJwt('test-signing-secret'), '④ ✅ Approved — Send It', config.load().monday.columns.offerStatus
     ));
     expect(ctx.res.status).toBe(200);
     expect(ctx.res.body).toMatchObject({ queued: true, itemId: '555', route: 'sign' });
@@ -106,9 +107,9 @@ describe('Azure Function entrypoints', () => {
     await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
     const ctx = makeContext();
     await sendForSign(ctx, { boardId: '111', itemId: '555' });
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
+    expect(backend.rows[555].written.status).toEqual({ label: '⑤ ⚙️ Out for Signature' });
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
-    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: 'Offer Sent' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '⑤ ⚙️ Out for Signature' });
   });
 
   test('sendForSign entry fails clearly when no PDF link exists to hydrate', async () => {
@@ -116,7 +117,8 @@ describe('Azure Function entrypoints', () => {
     // empty, so hydration must throw (queue redelivery handles the retry).
     await expect(sendForSign(makeContext(), { boardId: '111', itemId: '555' }))
       .rejects.toThrow(/no PDF link/);
-    expect(backend.rows[555].written.status).toEqual({ label: 'Sign Failed' });
+    expect(backend.rows[555].written.status).toEqual({ label: '❌ Sign Failed — See Updates' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: '❌ Failed — See Updates' });
   });
 
   test('adobeWebhook entry enqueues archive work and echoes client id', async () => {
@@ -146,7 +148,7 @@ describe('Azure Function entrypoints', () => {
     // Adobe webhook messages carry only the agreementId — archiveToBlob must
     // resolve the Monday item itself.
     await archiveToBlob(ctx, { agreementId: 'AGR-42' });
-    expect(backend.rows[555].written.status).toEqual({ label: 'Onboarding Complete' });
+    expect(backend.rows[555].written.status).toEqual({ label: '⑦ 🎉 Onboarding Complete' });
     expect(backend.rows[555].written.link_signed).toMatchObject({
       url: expect.stringContaining('pdf-archive'),
     });
@@ -199,7 +201,7 @@ describe('ops endpoints', () => {
 
 describe('signPoller fallback', () => {
   beforeEach(() => {
-    backend.rows[555].written.status = { label: 'Sent for Sign' };
+    backend.rows[555].written.status = { label: '⑤ ⚙️ Out for Signature' };
     backend.rows[555].written.text_agreement = 'AGR-42';
   });
 

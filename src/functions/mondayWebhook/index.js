@@ -147,10 +147,15 @@ async function handleWebhook(req, mondayRow = null) {
     }
     const hireName = event.pulseName || event.itemName || '';
     const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(hireName)}`;
-    await monday.postUpdate(itemId,
+    await monday.logAction(itemId,
       `👋 Welcome packet ready. Send ${hireName || 'the candidate'} their personalized info form:\n${formLink}\n\n`
-      + `Their answers sync back onto this record automatically. When all hire fields are set, check "Generate Docs" to create the offer letter.`
+      + `Their answers sync back onto this record automatically. Status moves to "${cfg.monday.statusLabels.awaitingInfo}" until they submit.\n\n`
+      + `📖 Full process guide (every step, who does what): ${cfg.monday.playbookUrl}`,
+      `create_item webhook received for item ${itemId}; posted prefilled form link (name query param) and set status to step ②.`
     ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
+    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingInfo).catch((err) => {
+      logger.warn('monday-webhook-welcome-status-failed', { itemId, error: err.message });
+    });
     logger.event('welcome-blast-posted', { itemId, hireName });
     return {
       status: 200,
@@ -167,11 +172,13 @@ async function handleWebhook(req, mondayRow = null) {
   if (isColumnEvent && event.columnId === cfg.monday.columns.offerStatus) {
     const label = (event.value && event.value.label && (event.value.label.text || event.value.label))
       || (typeof event.value === 'string' ? event.value : null);
-    if (label === 'Denied' || label === 'More Info Required') {
-      await monday.postUpdate(itemId,
-        label === 'Denied'
+    if (label === cfg.monday.offerLabels.denied || label === cfg.monday.offerLabels.moreInfo) {
+      const denied = label === cfg.monday.offerLabels.denied;
+      await monday.logAction(itemId,
+        denied
           ? `🛑 Offer marked Denied — the generated letter will not be sent. Re-generate with "Generate Docs" after changes if needed.`
-          : `✋ Offer needs more info before sending. Update the hire fields, then re-check "Generate Docs" to regenerate the letter.`
+          : `✋ Offer needs more info before sending. Update the hire fields, then re-check "Generate Docs" to regenerate the letter.`,
+        `Offer Letter Status set to "${label}" by a person; automation stopped this offer's routing.`
       ).catch((err) => logger.warn('monday-webhook-denial-post-failed', { itemId, error: err.message }));
       return {
         status: 200,
@@ -182,6 +189,10 @@ async function handleWebhook(req, mondayRow = null) {
     }
     if (label === cfg.monday.offerLabels.approved) {
       logger.event('offer-approved-queueing-sign', { itemId, boardId, label });
+      await monday.logAction(itemId,
+        `✅ Approval received — the offer is being sent for signature now. No further action needed; this item will update as signers complete.`,
+        `Offer Letter Status set to "${label}" by a person; a signing job was queued to docflow-sign.`
+      ).catch((err) => logger.warn('monday-webhook-approval-post-failed', { itemId, error: err.message }));
       return {
         status: 200,
         body: { queued: true, itemId: String(itemId), route: 'sign' },

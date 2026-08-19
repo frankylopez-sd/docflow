@@ -139,11 +139,18 @@ async function handleFormSync(req) {
 
   await monday.updateItemColumns(cfg.monday.onboardingBoardId, hireId, values);
 
+  // Advance the journey: ③ HR completes the remaining hire fields
+  await monday.updateItemStatus(cfg.monday.onboardingBoardId, hireId, cfg.monday.statusLabels.fieldsNeeded).catch((err) => {
+    logger.warn('formSync-status-advance-failed', { hireId, error: err.message });
+  });
+
   // Visible trail on the hire record (notifies subscribers)
   const notes = get(fc.notes);
-  await monday.postUpdate(hireId,
-    `📥 Welcome form received from ${candidateName}. Contact info, address, emergency contact and availability synced.`
-    + (notes ? `\n\nCandidate notes: ${notes}` : '')
+  await monday.logAction(hireId,
+    `📥 Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record. `
+    + `YOUR MOVE: fill the remaining ADP fields, then check "Generate Docs".`
+    + (notes ? `\n\nCandidate notes: ${notes}` : ''),
+    `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to step ③.`
   ).catch((err) => logger.warn('formSync-update-post-failed', { hireId, error: err.message }));
 
   logger.event('formSync-complete', { formItemId: itemId, hireId, fields: Object.keys(values).length });

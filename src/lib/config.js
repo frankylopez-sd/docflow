@@ -91,13 +91,33 @@ function load(options = {}) {
         // Offer lifecycle column (HR review gate) and its label vocabulary
         offerStatus: env.MONDAY_COL_OFFER_STATUS || 'color_mm63ewwy',
       },
+      // Offer Letter Status vocabulary (ordered ①→⑥, 👤 human / ⚙️ automated)
       offerLabels: {
-        generating: env.MONDAY_OFFER_LABEL_GENERATING || 'Offer Generating',
-        ready: env.MONDAY_OFFER_LABEL_READY || 'Offer Ready',
-        approved: env.MONDAY_OFFER_LABEL_APPROVED || 'Packaged Approved',
-        sent: env.MONDAY_OFFER_LABEL_SENT || 'Offer Sent',
+        notStarted: env.MONDAY_OFFER_LABEL_NOT_STARTED || '① Not Started',
+        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating Offer',
+        ready: env.MONDAY_OFFER_LABEL_READY || '③ 👤 Review Offer (HR)',
+        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Approved — Send It',
+        sent: env.MONDAY_OFFER_LABEL_SENT || '⑤ ⚙️ Out for Signature',
+        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑥ 🎉 Signed & Archived',
+        moreInfo: env.MONDAY_OFFER_LABEL_MORE_INFO || '✋ More Info Required',
+        denied: env.MONDAY_OFFER_LABEL_DENIED || '🛑 Denied',
+        failed: env.MONDAY_OFFER_LABEL_FAILED || '❌ Failed — See Updates',
+      },
+      // Onboarding Status vocabulary (macro journey ①→⑦)
+      statusLabels: {
+        welcome: env.MONDAY_STATUS_WELCOME || '① 👤 Send Welcome Form',
+        awaitingInfo: env.MONDAY_STATUS_AWAITING_INFO || '② ⏳ Awaiting Candidate Info',
+        fieldsNeeded: env.MONDAY_STATUS_FIELDS_NEEDED || '③ 👤 Complete Hire Fields',
+        docsInProgress: env.MONDAY_STATUS_DOCS || '④ ⚙️ Docs In Progress',
+        outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ⚙️ Out for Signature',
+        archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
+        complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Onboarding Complete',
+        pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed — See Updates',
+        signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed — See Updates',
       },
       // Welcome-form sync: candidate info form board -> Onboarding hire record
+      // The living process guide (linked from column headers and key updates)
+      playbookUrl: env.MONDAY_PLAYBOOK_URL || 'https://medwatchers.monday.com/docs/18427186375',
       formSync: {
         boardId: env.MONDAY_FORM_BOARD_ID || '18427180595',
         formUrl: env.MONDAY_FORM_URL || 'https://forms.monday.com/forms/f4b5d1499c2dc94ed022a220a133fd51',

@@ -76,8 +76,8 @@ async function processGenerate(context, queueItem) {
       logger.info('generatePDF-hydrated-from-monday', { itemId });
     }
 
-    // Update Monday: status → "Documentation Generating", offer → "Offer Generating"
-    await monday.updateItemStatus(boardId, itemId, 'Documentation Generating').catch(err => {
+    // Update Monday: status → ④ Docs In Progress, offer → ② Generating
+    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.docsInProgress).catch(err => {
       logger.warn('generatePDF-status-update-failed', { itemId, error: err.message });
     });
     await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.generating).catch(err => {
@@ -135,9 +135,16 @@ async function processGenerate(context, queueItem) {
       logger.warn('generatePDF-offer-ready-update-failed', { itemId, error: err.message });
     });
 
-    await monday.postUpdate(itemId,
-      `📄 Offer letter generated for ${firstName} ${lastName} and ready for review — see the PDF Document link. `
-      + `To send it for signature, set Offer Letter Status to "${cfg.monday.offerLabels.approved}".`
+    await monday.logAction(itemId,
+      `📄 Offer letter generated for ${firstName} ${lastName} — YOUR MOVE. Open the PDF Document link and review:\n`
+      + `  ☐ Name spelled correctly (${firstName} ${lastName})\n`
+      + `  ☐ Position & department right (${adpJobTitle} / ${adpDepartment})\n`
+      + `  ☐ Compensation & frequency right (${payRate} ${payFrequency})\n`
+      + `  ☐ Start date right (${startDate})\n`
+      + `  ☐ Supervisor right (${supervisor})\n\n`
+      + `Looks good → set Offer Letter Status to "${cfg.monday.offerLabels.approved}" (this sends it automatically).\n`
+      + `Something off → fix the field, re-check "Generate Docs" to regenerate. Or "${cfg.monday.offerLabels.denied}" / "${cfg.monday.offerLabels.moreInfo}" to stop.`,
+      `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
 
     logger.info('generatePDF-awaiting-hr-review', { itemId });
@@ -150,13 +157,16 @@ async function processGenerate(context, queueItem) {
   } catch (error) {
     logger.error('generatePDF-error', { error: error.message, itemId: queueItem?.itemId });
 
-    // Update Monday: status → "PDF Gen Failed"
-    await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, 'PDF Gen Failed').catch(() => {});
+    // Update Monday: status → PDF failed
+    const failCfg = config.load();
+    await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.statusLabels.pdfFailed).catch(() => {});
+    await monday.updateOfferStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.offerLabels.failed).catch(() => {});
     // Notify once (first attempt), not on every automatic retry
     const attempt = context?.bindingData?.dequeueCount;
     if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
-      await monday.postUpdate(queueItem.itemId,
-        `❌ Offer letter generation failed: ${error.message}. The system retries automatically; if this persists, verify the hire fields are complete and re-check "Generate Docs".`
+      await monday.logAction(queueItem.itemId,
+        `❌ Offer letter generation failed. The system retries automatically; if this status stays red, verify the hire fields are complete and re-check "Generate Docs".`,
+        `generatePDF error: ${error.message}`
       ).catch(() => {});
     }
 

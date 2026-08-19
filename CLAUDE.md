@@ -6,6 +6,9 @@
 - All triggers and event routes must be strictly **Idempotent**. Inspect current status before executing anything.
 - Do not overwrite existing code pipelines or abstract helpers without explicit confirmation.
 
+## Label Vocabulary (single source of truth: cfg.monday.statusLabels / offerLabels in src/lib/config.js)
+Both lifecycle columns use numbered, self-describing labels: 👤 = human action, ⚙️ = automated, 🎉 = done, ❌ = failed (instructions in item Updates). Onboarding Status: ①👤 Send Welcome Form → ②⏳ Awaiting Candidate Info → ③👤 Complete Hire Fields → ④⚙️ Docs In Progress → ⑤⚙️ Out for Signature → ⑥⚙️ Archiving → ⑦🎉 Onboarding Complete (+ ADP handoff labels kept verbatim: Create New Hire / Ready to Create / Missing Required Fields). Offer Letter Status: ① Not Started → ②⚙️ Generating Offer → ③👤 Review Offer (HR) → ④✅ Approved — Send It → ⑤⚙️ Out for Signature → ⑥🎉 Signed & Archived (+ ✋/🛑/❌). Monday constraint: existing label IDs keep their colors — never change a label's color, only text/index/description; new labels pick color freely. Every action is logged on the item via monday.logAction (Pacific-time stamp + plain line + 🔧 technical line).
+
 ## The Complete Multi-State Document Lifecycle
 1. **STATE: 'Generate Document'** (Inbound Monday Webhook)
    - Read item fields → Call Adobe Document Generation API → Upload Draft PDF to Monday Column → Advance Monday Status to 'For Review'.
