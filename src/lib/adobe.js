@@ -417,16 +417,36 @@ const _templateAssetCache = new Map(); // templateKey -> {assetID, uploadedAt}
  * @param {string} templateKey blob name within pdf-templates
  */
 async function _resolveTemplateAsset(templateKey, force = false) {
-  const blob = require('./blob'); // late require avoids circular import at load
+  const blob = require('./blob'); // late requires avoid circular imports at load
+  const monday = require('./monday');
 
-  const cached = _templateAssetCache.get(templateKey);
-  const fresh = cached && (Date.now() - cached.uploadedAt) < TEMPLATE_ASSET_TTL_MS;
-  if (fresh && !force) return cached.assetID;
+  // Source of truth: the Template Catalog board (team drops a new .docx on
+  // the row to update a letter). A new upload = new Monday asset id = new
+  // cache key, so team edits take effect on the very next generation.
+  let templateBuffer = null;
+  let cacheKey = templateKey;
+  try {
+    const fromMonday = await monday.getTemplateFile(templateKey);
+    if (fromMonday) {
+      cacheKey = `${templateKey}:${fromMonday.assetId}`;
+      const cached = _templateAssetCache.get(cacheKey);
+      if (cached && (Date.now() - cached.uploadedAt) < TEMPLATE_ASSET_TTL_MS && !force) return cached.assetID;
+      templateBuffer = fromMonday.buffer;
+    }
+  } catch (err) {
+    logger.warn('template-monday-fetch-failed-falling-back', { templateKey, error: err.message });
+  }
 
-  const templateBuffer = await blob.downloadPDF('pdf-templates', templateKey);
+  // Fallback: the durable blob copy
+  if (!templateBuffer) {
+    const cached = _templateAssetCache.get(cacheKey);
+    if (cached && (Date.now() - cached.uploadedAt) < TEMPLATE_ASSET_TTL_MS && !force) return cached.assetID;
+    templateBuffer = await blob.downloadPDF('pdf-templates', templateKey);
+  }
+
   const assetID = await uploadAsset(templateBuffer, DOCX_MIME);
-  _templateAssetCache.set(templateKey, { assetID, uploadedAt: Date.now() });
-  logger.event('adobe-template-asset-uploaded', { templateKey, assetID });
+  _templateAssetCache.set(cacheKey, { assetID, uploadedAt: Date.now() });
+  logger.event('adobe-template-asset-uploaded', { templateKey, assetID, source: cacheKey === templateKey ? 'blob' : 'monday' });
   return assetID;
 }
 

@@ -311,6 +311,43 @@ async function createBackgroundCheck(hireBoardId, hireItemId, employeeName) {
 }
 
 /**
+ * Team-editable templates: fetch the LATEST template file uploaded to the
+ * Template Catalog row matching this template key. Returns null when the
+ * catalog has no file (callers fall back to blob storage).
+ * @returns {Promise<{buffer:Buffer, assetId:string, name:string}|null>}
+ */
+async function getTemplateFile(templateKey) {
+  const cfg = config.load();
+  const tf = cfg.monday.templateFiles;
+  const query = `
+    query ($boardId: [ID!]) {
+      boards (ids: $boardId) {
+        items_page (limit: 50) {
+          items {
+            id
+            name
+            column_values (ids: ["${tf.keyColumn}"]) { id text }
+            assets (column_ids: ["${tf.fileColumn}"]) { id public_url created_at }
+          }
+        }
+      }
+    }`;
+  const data = await _gql(query, { boardId: [String(cfg.monday.templateCatalogId)] }, 'monday-template-file');
+  const items = (data.boards && data.boards[0] && data.boards[0].items_page && data.boards[0].items_page.items) || [];
+  const row = items.find((i) => {
+    const key = i.column_values && i.column_values[0] && i.column_values[0].text;
+    return key && key.includes(templateKey);
+  });
+  if (!row || !Array.isArray(row.assets) || row.assets.length === 0) return null;
+
+  // Latest upload wins — the team updates a template by dropping a new file
+  const latest = row.assets.reduce((a, b) => (String(a.created_at) > String(b.created_at) ? a : b));
+  const res = await axios.get(latest.public_url, { responseType: 'arraybuffer', timeout: 30000 });
+  logger.event('template-file-from-monday', { templateKey, catalogItemId: row.id, assetId: latest.id });
+  return { buffer: Buffer.from(res.data), assetId: String(latest.id), name: row.name };
+}
+
+/**
  * Read the template catalog board.
  * @returns {Promise<Array>} [{itemId, templateName, adobeTemplateId, dataFields, signers}]
  */
@@ -553,6 +590,7 @@ module.exports = {
   readRows,
   readTemplates,
   fetchHireData,
+  getTemplateFile,
   getColumnValueJson,
   updateOfferStatus,
   createBackgroundCheck,

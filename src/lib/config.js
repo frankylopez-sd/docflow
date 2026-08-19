@@ -144,6 +144,12 @@ function load(options = {}) {
         },
       },
       // Welcome-form sync: candidate info form board -> Onboarding hire record
+      // Team-editable templates: the Template Catalog board is the source of
+      // truth — the latest file on a row wins; blob storage is the fallback.
+      templateFiles: {
+        keyColumn: env.MONDAY_TPL_KEY_COLUMN || 'text_mm64n4ts',
+        fileColumn: env.MONDAY_TPL_FILE_COLUMN || 'file_mm6csbxn',
+      },
       // The living process guide (linked from column headers and key updates)
       playbookUrl: env.MONDAY_PLAYBOOK_URL || 'https://medwatchers.monday.com/docs/18427186375',
       formSync: {

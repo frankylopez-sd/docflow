@@ -137,6 +137,11 @@ function makeBackend() {
       };
     }
 
+    if (q.includes('assets (column_ids')) {
+      // getTemplateFile: no catalog files in the offline fake -> blob fallback
+      return { data: { data: { boards: [{ items_page: { items: [] } }] } } };
+    }
+
     if (q.includes('boards')) {
       return {
         data: {
