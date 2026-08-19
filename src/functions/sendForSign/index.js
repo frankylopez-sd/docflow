@@ -70,15 +70,24 @@ module.exports = async function (context, queueItem) {
           { email: workEmail, name: `${firstName} ${lastName}`, order: 0 },
         ];
 
-    logger.info('sendForSign-creating-agreement', { itemId, signerCount: signers.length });
+    // Signing packet: team-managed catalog rows (policies, consent forms)
+    // ride in the same agreement behind the custom offer letter — one signing
+    // session, one combined signed PDF back. Empty catalog = offer only.
+    const packetDocs = await monday.getPacketFiles().catch(err => {
+      logger.warn('sendForSign-packet-load-failed', { itemId, error: err.message });
+      return [];
+    });
+
+    logger.info('sendForSign-creating-agreement', { itemId, signerCount: signers.length, packetDocs: packetDocs.length });
 
     // Create Adobe Sign agreement
     const agreementResult = await adobe.createSigningAgreement({
       documentUrl: pdfUrl,
       fileName: `offer-${firstName}-${lastName}.pdf`,
       signers: signers,
-      message: `Please review and sign the offer letter for ${firstName} ${lastName}`,
-      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+      message: `Please review and sign the ${packetDocs.length ? 'hire packet' : 'offer letter'} for ${firstName} ${lastName}`,
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      extraDocuments: packetDocs,
     });
 
     const agreementId = agreementResult.id;
@@ -105,10 +114,13 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-offer-sent-update-failed', { itemId, error: err.message });
     });
 
+    const packetLine = packetDocs.length
+      ? `\n\n📑 In the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
+      : '';
     await monday.logAction(itemId,
-      `✉️ Offer is out for signature. Signing order: ${signers.map(s => s.name).join(' → ')}. `
-      + `Nothing to do — this item updates automatically as each person signs.`,
-      `Adobe Sign agreement ${agreementId} created with ${signers.length} serial signers; completion webhook + 30-min poller are watching it.`
+      `✉️ ${packetDocs.length ? 'Hire packet' : 'Offer'} is out for signature. Signing order: ${signers.map(s => s.name).join(' → ')}. `
+      + `Nothing to do — this item updates automatically as each person signs.${packetLine}`,
+      `Adobe Sign agreement ${agreementId} created with ${signers.length} serial signers and ${1 + packetDocs.length} document(s); completion webhook + 30-min poller are watching it.`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
     // The candidate package: one email with everything the candidate needs —

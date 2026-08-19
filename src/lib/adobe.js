@@ -265,8 +265,17 @@ async function createEnvelope(pdf, signers, opts = {}) {
 
   const transientDocumentId = await uploadTransientDocument(buffer, opts.fileName || 'document.pdf');
 
+  // Signing packet: extra documents (policies, consent forms) ride in the
+  // SAME agreement — the signer pages through everything in one session and
+  // the combined signed PDF comes back as one file.
+  const extraFileInfos = [];
+  for (const doc of opts.extraDocuments || []) {
+    const id = await uploadTransientDocument(doc.buffer, doc.name || 'attachment.pdf');
+    extraFileInfos.push({ transientDocumentId: id });
+  }
+
   const body = {
-    fileInfos: [{ transientDocumentId }],
+    fileInfos: [{ transientDocumentId }, ...extraFileInfos],
     name: opts.name || 'DocFlow Agreement',
     participantSetsInfo: signers.map((s, i) => ({
       order: i + 1, // serial order: HR -> Manager -> Employee
@@ -533,15 +542,17 @@ async function getSigningUrl(agreementId, opts = {}) {
  * @returns {Promise<{id:string, signers:Array}>}
  */
 async function createSigningAgreement(opts) {
-  const { documentUrl, fileName, signers, message, dueDate } = opts;
+  const { documentUrl, fileName, signers, message, dueDate, extraDocuments } = opts;
 
   if (!documentUrl) throw new Error('createSigningAgreement: documentUrl is required');
   if (!signers || !Array.isArray(signers)) throw new Error('createSigningAgreement: signers array is required');
 
+  const hasPacket = Array.isArray(extraDocuments) && extraDocuments.length > 0;
   const envelope = await createEnvelope(documentUrl, signers, {
     fileName: fileName || 'document.pdf',
-    name: `Offer Letter - ${signers[signers.length - 1].name || 'Employee'}`,
-    message: message || 'Please review and sign this document'
+    name: `${hasPacket ? 'Hire Packet' : 'Offer Letter'} - ${signers[signers.length - 1].name || 'Employee'}`,
+    message: message || 'Please review and sign this document',
+    extraDocuments,
   });
 
   return {

@@ -349,6 +349,57 @@ async function getTemplateFile(templateKey) {
   return { buffer: Buffer.from(res.data), assetId: String(latest.id), name: row.name };
 }
 
+/**
+ * Signing-packet documents: catalog rows typed "Packet Document" with Active
+ * checked. Each contributes its latest uploaded file to every hire's Adobe
+ * agreement, in Packet Order. Empty/missing rows -> plain single-doc send.
+ * @returns {Promise<Array<{name:string, buffer:Buffer}>>}
+ */
+async function getPacketFiles() {
+  const cfg = config.load();
+  const tf = cfg.monday.templateFiles;
+  if (!tf.typeColumn || !tf.activeColumn) return [];
+  const query = `
+    query ($boardId: [ID!]) {
+      boards (ids: $boardId) {
+        items_page (limit: 50) {
+          items {
+            id
+            name
+            column_values (ids: ["${tf.typeColumn}", "${tf.activeColumn}", "${tf.orderColumn}"]) { id text value }
+            assets (column_ids: ["${tf.fileColumn}"]) { id public_url created_at }
+          }
+        }
+      }
+    }`;
+  const data = await _gql(query, { boardId: [String(cfg.monday.templateCatalogId)] }, 'monday-packet-files');
+  const items = (data.boards && data.boards[0] && data.boards[0].items_page && data.boards[0].items_page.items) || [];
+  const cvOf = (item, id) => (item.column_values || []).find((cv) => cv.id === id) || {};
+
+  const rows = items.filter((i) => {
+    const type = String(cvOf(i, tf.typeColumn).text || '');
+    if (!type.includes(tf.packetTypeLabel)) return false;
+    try {
+      const parsed = JSON.parse(cvOf(i, tf.activeColumn).value || 'null');
+      if (!parsed || !(parsed.checked === true || parsed.checked === 'true')) return false;
+    } catch (_) { return false; }
+    return Array.isArray(i.assets) && i.assets.length > 0;
+  }).sort((a, b) =>
+    (Number(cvOf(a, tf.orderColumn).text) || 999) - (Number(cvOf(b, tf.orderColumn).text) || 999));
+
+  const files = [];
+  for (const row of rows) {
+    // Latest upload wins — same convention as the letter templates
+    const latest = row.assets.reduce((x, y) => (String(x.created_at) > String(y.created_at) ? x : y));
+    const res = await axios.get(latest.public_url, { responseType: 'arraybuffer', timeout: 30000 });
+    // Strip the catalog row's instruction suffix ("— drop the PDF…") for a clean doc name
+    const cleanName = String(row.name).split('—')[0].trim() || 'Packet Document';
+    files.push({ name: `${cleanName}.pdf`, buffer: Buffer.from(res.data) });
+  }
+  if (files.length) logger.event('packet-files-loaded', { count: files.length, names: files.map((f) => f.name) });
+  return files;
+}
+
 // Email templates change at human speed — a short cache keeps a burst of
 // sends from re-reading the board while still picking up edits fast.
 const _emailTemplateCache = new Map(); // key -> { tpl, at }
@@ -657,6 +708,7 @@ module.exports = {
   hasUpdates,
   hasUpdateContaining,
   getEmailTemplate,
+  getPacketFiles,
   updateItemColumns,
   adpReadiness,
   updateStatus,

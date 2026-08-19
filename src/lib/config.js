@@ -167,6 +167,13 @@ function load(options = {}) {
       templateFiles: {
         keyColumn: env.MONDAY_TPL_KEY_COLUMN || 'text_mm64n4ts',
         fileColumn: env.MONDAY_TPL_FILE_COLUMN || 'file_mm6csbxn',
+        // Signing-packet rows on the same catalog: Template Type = this label
+        // + Active checked -> the file is bundled into every hire's Adobe
+        // agreement, in Packet Order, right behind the custom offer letter.
+        typeColumn: env.MONDAY_TPL_TYPE_COLUMN || 'dropdown_mm64hytj',
+        activeColumn: env.MONDAY_TPL_ACTIVE_COLUMN || 'boolean_mm641dwh',
+        orderColumn: env.MONDAY_TPL_ORDER_COLUMN || 'numeric_mm6c7xmw',
+        packetTypeLabel: env.MONDAY_TPL_PACKET_LABEL || 'Packet Document',
       },
       // Team-editable EMAIL wording (Email Templates board 18427287360):
       // Subject/Body per key — HR edits the text in Monday, the next send
