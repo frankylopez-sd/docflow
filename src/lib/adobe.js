@@ -68,8 +68,8 @@ async function _fetchSignToken() {
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: cfg.adobe.signRefreshToken,
-    client_id: cfg.adobe.clientId,
-    client_secret: cfg.adobe.clientSecret,
+    client_id: cfg.adobe.signClientId || cfg.adobe.clientId,
+    client_secret: cfg.adobe.signClientSecret || cfg.adobe.clientSecret,
   });
   const res = await axios.post(`${cfg.adobe.signApiUrl}/oauth/v2/refresh`, params.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

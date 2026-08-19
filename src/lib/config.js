@@ -51,6 +51,9 @@ function load(options = {}) {
       signApiUrl: env.ADOBE_SIGN_API_URL,
       signIntegrationKey: env.ADOBE_SIGN_INTEGRATION_KEY || null,
       signRefreshToken: env.ADOBE_SIGN_REFRESH_TOKEN || null,
+      // Adobe Sign OAuth app (distinct from the PDF Services project creds)
+      signClientId: env.ADOBE_SIGN_CLIENT_ID || null,
+      signClientSecret: env.ADOBE_SIGN_CLIENT_SECRET || null,
       webhookUrl: env.ADOBE_WEBHOOK_URL || null,
       rateLimitPerMin: _int(env.DOCFLOW_ADOBE_RATE_LIMIT_PER_MIN, 500),
     },
