@@ -65,6 +65,18 @@ module.exports = async function (context, req) {
       });
     }
 
+    // Name the gaps on the card so nobody has to guess what "missing" means
+    if (!isValid) {
+      const friendly = (f) => f.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^./, (c) => c.toUpperCase()).replace(/\badp\b/i, 'ADP');
+      try {
+        await monday.logAction(itemId,
+          `✋ ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
+          + missing.map((f) => `  • ${friendly(f)}`).join('\n')
+          + `\n\nFill ${missing.length === 1 ? 'it' : 'them'} in on this card and the validation will pass on the next check.`
+        );
+      } catch (_) { /* comment is best-effort — validation result stands */ }
+    }
+
     // If valid, queue PDF generation
     if (isValid) {
       try {

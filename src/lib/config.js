@@ -113,6 +113,7 @@ function load(options = {}) {
         outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ⚙️ Signing',
         archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
         complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Done',
+        missingFields: env.MONDAY_STATUS_MISSING || 'Missing Required Fields',
         pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed',
         signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed',
       },

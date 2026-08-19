@@ -185,6 +185,14 @@ async function handleWebhook(req, mondayRow = null) {
       || (typeof event.value === 'string' ? event.value : null);
     if (label === cfg.monday.offerLabels.denied || label === cfg.monday.offerLabels.moreInfo) {
       const denied = label === cfg.monday.offerLabels.denied;
+      // The system itself sets ✋ when it can't build the letter — and it has
+      // already posted the itemized field list. Don't stack a generic echo on it.
+      if (!denied) {
+        const alreadyExplained = await monday.hasUpdateContaining(itemId, "Can't build the offer letter").catch(() => false);
+        if (alreadyExplained) {
+          return { status: 200, body: { documented: true, deduped: true, label, itemId: String(itemId) }, queueMessage: null, warnings: [] };
+        }
+      }
       await monday.logAction(itemId,
         denied
           ? `🛑 Offer marked Denied — the generated letter will not be sent. Re-generate with "Generate Docs" after changes if needed.`

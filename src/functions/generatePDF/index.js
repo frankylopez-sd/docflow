@@ -76,6 +76,32 @@ async function processGenerate(context, queueItem) {
       logger.info('generatePDF-hydrated-from-monday', { itemId });
     }
 
+    // Gate: the letter can only be built if the employer fields are filled.
+    // Missing data is a person's fix, not a retry's — stop cleanly, name the
+    // gaps on the card, and wait for the checkbox to be re-checked.
+    const REQUIRED_FOR_LETTER = {
+      firstName: 'First name', lastName: 'Last name', workEmail: 'Work email',
+      adpJobTitle: 'Job title', adpDepartment: 'Department', supervisor: 'Supervisor',
+      payRate: 'Pay rate', payFrequency: 'Pay frequency',
+    };
+    const values = { firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency };
+    const missingFields = Object.entries(REQUIRED_FOR_LETTER)
+      .filter(([key]) => values[key] == null || String(values[key]).trim() === '')
+      .map(([, label]) => label);
+
+    if (missingFields.length > 0) {
+      logger.warn('generatePDF-missing-fields', { itemId, missing: missingFields });
+      await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.missingFields).catch(() => {});
+      await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.moreInfo).catch(() => {});
+      await monday.logAction(itemId,
+        `✋ Can't build the offer letter yet — ${missingFields.length === 1 ? 'one field is' : missingFields.length + ' fields are'} still empty:\n`
+        + missingFields.map((f) => `  • ${f}`).join('\n')
+        + `\n\nFill ${missingFields.length === 1 ? 'it' : 'them'} in on this card, then check ☑ Generate Docs again and the letter will build right away.`
+      ).catch(() => {});
+      context.res = { status: 200, body: { itemId, generated: false, missingFields } };
+      return; // no throw — retries can't fill in fields, a person can
+    }
+
     // Update Monday: status → ④ Docs In Progress, offer → ② Generating
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.docsInProgress).catch(err => {
       logger.warn('generatePDF-status-update-failed', { itemId, error: err.message });
