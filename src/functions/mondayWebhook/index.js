@@ -273,7 +273,9 @@ async function handleWebhook(req, mondayRow = null) {
     const oOrder = cfg.monday.offerOrder;
     const oIdx = oOrder.indexOf(label);
     const oPrevIdx = prevText ? oOrder.indexOf(prevText) : -1;
-    const oInOrder = oIdx !== -1 && (oPrevIdx === -1 || oIdx === oPrevIdx + 1 || oIdx === oPrevIdx);
+    // Backward moves are the system's own regeneration writes (e.g. ③→②) —
+    // stay silent. Only narrate FORWARD skips (a human dragging ahead).
+    const oInOrder = oIdx !== -1 && (oPrevIdx === -1 || oIdx <= oPrevIdx + 1);
     if (!oInOrder && oIdx !== -1) {
       await monday.logAction(itemId,
         `ℹ️ Offer Letter Status was set to "${label}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: this label is automation-owned, selecting it by hand doesn't ${label.includes('Signing') ? 'send anything for signature' : 'run anything'}.\n\n`
