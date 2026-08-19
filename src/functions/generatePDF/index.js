@@ -181,6 +181,7 @@ async function processGenerate(context, queueItem) {
       + `  ☐ Compensation & frequency right (${payRate} ${payFrequency})\n`
       + `  ☐ Start date right (${startDate})\n`
       + `  ☐ Supervisor right (${supervisor})\n\n`
+      + `📍 Where it lives: this draft is in Azure storage (24h link) · the template came from the team-editable Template Catalog · once signed, the final lives in Adobe Sign AND archives to new-hires/${lastName}-${firstName}.\n\n`
       + `Looks good → select "${cfg.monday.offerLabels.approved}" (this sends it automatically).\n`
       + `Something off → fix the field, re-check "Generate Docs" to regenerate. Or "${cfg.monday.offerLabels.denied}" / "${cfg.monday.offerLabels.moreInfo}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
