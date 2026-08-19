@@ -130,12 +130,45 @@ async function handleWebhook(req, mondayRow = null) {
     };
   }
 
+  // Welcome blast: a new hire item on the Onboarding board gets an update
+  // with the candidate's personalized info-form link, ready for HR to send.
+  const isCreateEvent = event.type === 'create_pulse' || event.type === 'create_item';
+  if (isCreateEvent) {
+    const hireName = event.pulseName || event.itemName || '';
+    const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(hireName)}`;
+    await monday.postUpdate(itemId,
+      `👋 Welcome packet ready. Send ${hireName || 'the candidate'} their personalized info form:\n${formLink}\n\n`
+      + `Their answers sync back onto this record automatically. When all hire fields are set, check "Generate Docs" to create the offer letter.`
+    ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
+    logger.event('welcome-blast-posted', { itemId, hireName });
+    return {
+      status: 200,
+      body: { welcomed: true, itemId: String(itemId) },
+      queueMessage: null,
+      warnings: [],
+    };
+  }
+
   // HR review gate: offer-status flipped to the approval label → queue signing.
   // Our own offer-status writes (Generating/Ready/Sent) never use the approval
-  // label, so this route cannot recurse.
+  // label, so this route cannot recurse. Denials and info requests are
+  // documented on the item so the decision trail is visible.
   if (isColumnEvent && event.columnId === cfg.monday.columns.offerStatus) {
     const label = (event.value && event.value.label && (event.value.label.text || event.value.label))
       || (typeof event.value === 'string' ? event.value : null);
+    if (label === 'Denied' || label === 'More Info Required') {
+      await monday.postUpdate(itemId,
+        label === 'Denied'
+          ? `🛑 Offer marked Denied — the generated letter will not be sent. Re-generate with "Generate Docs" after changes if needed.`
+          : `✋ Offer needs more info before sending. Update the hire fields, then re-check "Generate Docs" to regenerate the letter.`
+      ).catch((err) => logger.warn('monday-webhook-denial-post-failed', { itemId, error: err.message }));
+      return {
+        status: 200,
+        body: { documented: true, label, itemId: String(itemId) },
+        queueMessage: null,
+        warnings: [],
+      };
+    }
     if (label === cfg.monday.offerLabels.approved) {
       logger.event('offer-approved-queueing-sign', { itemId, boardId, label });
       return {
@@ -160,24 +193,25 @@ async function handleWebhook(req, mondayRow = null) {
     };
   }
 
-  // Only react to the trigger checkbox being CHECKED
+  // STRICT routing: only the trigger checkbox being CHECKED queues generation.
+  // Any other event type or column is acknowledged and dropped — unknown
+  // events must never start the pipeline (blueprint: idempotent state machine).
   const isTriggerColumn = !event.columnId || event.columnId === cfg.monday.columns.trigger;
   const checked = event.value && (event.value.checked === true || event.value.checked === 'true');
 
-  if (isColumnEvent && (!isTriggerColumn || !checked)) {
+  if (!isColumnEvent || !isTriggerColumn || !checked) {
     logger.debug('monday-webhook-ignored', {
       itemId,
       eventType: event.type,
       columnId: event.columnId,
       triggerColumn: cfg.monday.columns.trigger,
-      isCheckbox: event.type === 'update_column_value' || event.type === 'change_column_value',
       checked: checked ? 'true' : 'false',
     });
     return {
       status: 200,
       body: {
         ignored: true,
-        reason: isColumnEvent ? 'not trigger checkbox checked' : 'not a column event',
+        reason: isColumnEvent ? 'not trigger checkbox checked' : 'unrecognized event type',
       },
       queueMessage: null,
       warnings: [],

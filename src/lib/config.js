@@ -100,6 +100,7 @@ function load(options = {}) {
       // Welcome-form sync: candidate info form board -> Onboarding hire record
       formSync: {
         boardId: env.MONDAY_FORM_BOARD_ID || '18427180595',
+        formUrl: env.MONDAY_FORM_URL || 'https://forms.monday.com/forms/f4b5d1499c2dc94ed022a220a133fd51',
         // form board column ids (question ids)
         formColumns: {
           preferredFirst: 'short_textwyh1tbpw',
@@ -125,6 +126,35 @@ function load(options = {}) {
           emergencyName: env.MONDAY_COL_EMERGENCY_NAME || 'text_mm6cv6se',
           emergencyPhone: env.MONDAY_COL_EMERGENCY_PHONE || 'phone_mm6ca1xn',
         },
+      },
+      // ADP handoff: the required hire fields and their live board columns.
+      // Used to report readiness before the external team creates the ADP user.
+      adpFieldColumns: {
+        firstName: 'text_mm6570q4',
+        lastName: 'text_mm65jrfy',
+        workEmail: 'text_mm65hxkh',
+        badgeNumber: 'text_mm65ktsr',
+        adpJobTitle: 'dropdown_mm65th43',
+        adpDepartment: 'dropdown_mm658qx8',
+        adpWorkLocation: 'dropdown_mm65fa2g',
+        workerType: 'dropdown_mm65jpby',
+        supervisor: 'dropdown_mm65wk46',
+        reasonForHire: 'dropdown_mm66d04',
+        payType: 'dropdown_mm65v43b',
+        payRate: 'numeric_mm65mx3m',
+        payFrequency: 'dropdown_mm658n1t',
+        companyCode: 'dropdown_mm6566ff',
+        payClass: 'dropdown_mm65aswt',
+        flsaStatus: 'dropdown_mm6576ra',
+        suiSdiTaxCode: 'dropdown_mm651ram',
+        workersCompStatus: 'dropdown_mm65r639',
+        workersCompJobClass: 'dropdown_mm65e9dz',
+        workedInState: 'dropdown_mm66y9tg',
+        livedInState: 'dropdown_mm669dw4',
+        timeZone: 'dropdown_mm66x62b',
+        benefitsEligibility: 'color_mm651h50',
+        benefitsEligibilityClass: 'dropdown_mm66xmr6',
+        onboardingExperience: 'dropdown_mm66tnrh',
       },
       // Downstream kickoff: Background Checks board (created when onboarding completes)
       backgroundCheck: {

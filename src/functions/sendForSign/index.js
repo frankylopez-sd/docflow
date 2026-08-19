@@ -110,6 +110,13 @@ module.exports = async function (context, queueItem) {
 
     // Update Monday: status → "Sign Failed"
     await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, 'Sign Failed').catch(() => {});
+    // Notify once (first attempt), not on every automatic retry
+    const attempt = context?.bindingData?.dequeueCount;
+    if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
+      await monday.postUpdate(queueItem.itemId,
+        `❌ Sending for signature failed: ${error.message}. The system retries automatically; to re-trigger manually, set Offer Letter Status back to "Packaged Approved".`
+      ).catch(() => {});
+    }
 
     throw error;
   }

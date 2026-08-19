@@ -80,8 +80,19 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-bg-check-create-failed', { itemId, error: err.message });
     });
 
+    // ADP handoff readiness — tell the team exactly what (if anything) is missing
+    let adpLine = '';
+    try {
+      const readiness = await monday.adpReadiness(boardId, itemId);
+      adpLine = readiness.complete
+        ? `\n\n🟢 ADP handoff: all ${readiness.total} required fields are filled — ready for user creation.`
+        : `\n\n🟡 ADP handoff: ${readiness.filled}/${readiness.total} required fields filled. Missing: ${readiness.missing.join(', ')}.`;
+    } catch (err) {
+      logger.warn('archiveToBlob-adp-readiness-failed', { itemId, error: err.message });
+    }
+
     await monday.postUpdate(itemId,
-      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (see Signed PDF link). Background check opened and linked.`
+      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (see Signed PDF link). Background check opened and linked.${adpLine}`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
     logger.info('archiveToBlob-complete', { itemId, archiveUrl });

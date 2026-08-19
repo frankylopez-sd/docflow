@@ -189,6 +189,24 @@ async function postUpdate(itemId, body) {
 }
 
 /**
+ * ADP handoff readiness: check every required ADP field column on the hire.
+ * @returns {Promise<{complete:boolean, filled:number, total:number, missing:string[]}>}
+ */
+async function adpReadiness(boardId, itemId) {
+  const cfg = config.load();
+  const fields = cfg.monday.adpFieldColumns || {};
+  const row = await readRow(boardId, itemId);
+  const missing = [];
+  for (const [field, colId] of Object.entries(fields)) {
+    const v = row.columns[colId];
+    const empty = v == null || v === '' || (typeof v === 'object' && !v.label && !v.text && !v.date);
+    if (empty) missing.push(field);
+  }
+  const total = Object.keys(fields).length;
+  return { complete: missing.length === 0, filled: total - missing.length, total, missing };
+}
+
+/**
  * Downstream kickoff: create a Background Check item for a completed hire and
  * link it back to the hire row on the Onboarding board.
  * @returns {Promise<string|null>} new background-check item id
@@ -481,6 +499,7 @@ module.exports = {
   findItemsByName,
   postUpdate,
   updateItemColumns,
+  adpReadiness,
   updateStatus,
   updateItemStatus,
   updateItemColumn,

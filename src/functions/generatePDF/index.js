@@ -152,6 +152,13 @@ async function processGenerate(context, queueItem) {
 
     // Update Monday: status → "PDF Gen Failed"
     await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, 'PDF Gen Failed').catch(() => {});
+    // Notify once (first attempt), not on every automatic retry
+    const attempt = context?.bindingData?.dequeueCount;
+    if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
+      await monday.postUpdate(queueItem.itemId,
+        `❌ Offer letter generation failed: ${error.message}. The system retries automatically; if this persists, verify the hire fields are complete and re-check "Generate Docs".`
+      ).catch(() => {});
+    }
 
     throw error; // Let Azure retry based on maxDequeueCount
   }
