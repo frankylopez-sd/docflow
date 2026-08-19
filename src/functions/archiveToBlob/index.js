@@ -116,6 +116,39 @@ async function processArchive(context, queueItem) {
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
+    // Congrats email: the candidate's own copy of the fully-signed letter,
+    // attached — their whole record in one place. Only fires when Graph mail
+    // is armed; an attachment here is safe (executed copy, nothing revocable).
+    try {
+      const mailer = require('../../lib/mailer');
+      if (mailer.isConfigured()) {
+        const row = await monday.readRow(boardId, itemId).catch(() => null);
+        const rawTo = row && (row.columns[cfg.monday.formSync.targetColumns.personalEmail]
+          || row.columns[cfg.monday.columns.workEmail]);
+        const to = typeof rawTo === 'string' ? rawTo : (rawTo && (rawTo.email || rawTo.text)) || null;
+        if (to && /@/.test(to)) {
+          const cleanName = String(employeeName || '').replace(/-/g, ' ').trim();
+          const first = cleanName.split(/\s+/)[0] || 'there';
+          const tpl = await monday.getEmailTemplate('congrats').catch(() => null);
+          const fill = { firstName: first, fullName: cleanName };
+          const subject = mailer.renderTemplate((tpl && tpl.subject) || `🎉 You're official, {{firstName}} — welcome to MedWatchers!`, fill);
+          const bodyText = mailer.renderTemplate((tpl && tpl.body)
+            || `Hi {{firstName}},\n\nIt's official — everything is signed! Your fully executed offer letter is attached to this email for your records. Keep it somewhere safe.\n\nComing up next:\n  • A background check consent request (watch your inbox — nothing to do until it arrives)\n  • Your first-day details from your manager\n\nWe're thrilled to have you on the team. See you soon!\n\nWarmly,\nThe MedWatchers HR Team`, fill);
+          const result = await mailer.sendMail({
+            to, subject, body: bodyText,
+            attachments: [{ name: `MedWatchers-signed-offer-${dateStamp}.pdf`, content: signedPdfBuffer }],
+          });
+          if (result.sent) {
+            await monday.logAction(itemId,
+              `🎉 Congrats email sent to ${to} with the signed offer letter attached — the candidate has their copy.`
+            ).catch(() => {});
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('archiveToBlob-congrats-email-failed', { itemId, error: err.message });
+    }
+
     logger.info('archiveToBlob-complete', { itemId, archiveUrl });
 
     context.res = {

@@ -192,6 +192,12 @@ function makeBackend() {
 function installRoutes(axios, backend, overrides = {}) {
   axios.post.mockImplementation(async (url, body) => {
     if (url.includes('api.monday.com')) return backend.handle(body);
+    if (url.includes('login.microsoftonline.com')) {
+      return { data: { access_token: 'graph-token', expires_in: 3599 } };
+    }
+    if (url.includes('graph.microsoft.com') && url.includes('/sendMail')) {
+      return { status: 202, data: {} };
+    }
     if (url.includes('/ims/token/v3')) {
       return { data: { access_token: 'pdf-token', expires_in: 86400 } };
     }
@@ -252,6 +258,21 @@ function installRoutes(axios, backend, overrides = {}) {
             { order: 1, status: 'COMPLETED', memberInfos: [{ email: 'hr@medwatchers.com' }] },
             { order: 2, status: 'COMPLETED', memberInfos: [{ email: 'jane@medwatchers.com' }] },
           ],
+        },
+      };
+    }
+    if (url.includes('/signingUrls')) {
+      if (overrides.noSigningUrl) {
+        // Non-404 so getSigningUrl aborts immediately instead of polling
+        const err = new Error('signing urls unavailable');
+        err.response = { status: 500 };
+        throw err;
+      }
+      return {
+        data: {
+          signingUrlSetInfos: [{
+            signingUrls: [{ email: 'jane@medwatchers.com', esignUrl: 'https://secure.na2.adobesign.com/public/apiesign?aid=AGR-42' }],
+          }],
         },
       };
     }

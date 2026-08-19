@@ -111,21 +111,28 @@ module.exports = async function (context, queueItem) {
       `Adobe Sign agreement ${agreementId} created with ${signers.length} serial signers; completion webhook + 30-min poller are watching it.`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
-    // The candidate package: one email with everything the candidate needs.
-    // Wording is team-editable on the Email Templates board; when Graph mail
-    // is armed it sends automatically, otherwise HR gets a ready-to-send draft.
+    // The candidate package: one email with everything the candidate needs —
+    // including their DIRECT Adobe signing link, so our email is the single
+    // front door (no hunting for the separate Adobe notification). Wording is
+    // team-editable on the Email Templates board; when Graph mail is armed it
+    // sends automatically, otherwise HR gets a ready-to-send draft.
     const mailer = require('../../lib/mailer');
     const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
+    const signLink = await adobe.getSigningUrl(agreementId).catch(() => null);
     const tpl = await monday.getEmailTemplate('package').catch(() => null);
-    const fill = { firstName, lastName, fullName: `${firstName} ${lastName}` };
+    const fill = {
+      firstName, lastName, fullName: `${firstName} ${lastName}`,
+      signLink: signLink || 'watch for the email from Adobe Sign — it arrives within a minute',
+    };
     const pkgSubject = mailer.renderTemplate((tpl && tpl.subject) || 'Your MedWatchers offer is on its way, {{firstName}}! ✍️', fill);
     const pkgBody = mailer.renderTemplate((tpl && tpl.body)
       || `Hi {{firstName}},\n\n`
-      + `Great news — your official offer letter is out for signatures right now.\n\n`
+      + `Great news — your official offer letter is ready for you!\n\n`
+      + `👉 Review and sign it here: {{signLink}}\n\n`
       + `What happens next:\n`
-      + `  1. You'll receive an email from Adobe Sign — open it and sign right on your phone or computer (takes under a minute).\n`
+      + `  1. Sign right on your phone or computer (takes under a minute).\n`
       + `  2. A background check consent request will follow — nothing to do until it arrives.\n`
-      + `  3. Once everything's signed, we'll send your first-day details.\n\n`
+      + `  3. Once everything's signed, we'll email you a copy of everything plus your first-day details.\n\n`
       + `Questions anytime — just reply here. We can't wait!\n\n`
       + `Warmly,\nThe MedWatchers HR Team`, fill);
 

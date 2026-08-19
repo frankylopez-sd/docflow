@@ -50,28 +50,34 @@ async function _getToken() {
 
 /**
  * Send one email from the configured HR mailbox.
+ * @param {Object} opts {to, subject, body, attachments?: [{name, content:Buffer}|{name, contentBytes:base64}]}
  * @returns {Promise<{sent:boolean, reason?:string}>} never throws on
  *          "not configured" — callers decide between send and draft-comment.
  */
-async function sendMail({ to, subject, body }) {
+async function sendMail({ to, subject, body, attachments }) {
   if (!isConfigured()) return { sent: false, reason: 'graph mail not configured' };
   if (!to || !/@/.test(String(to))) return { sent: false, reason: `invalid recipient: ${to}` };
 
   const gm = config.load().graphMail;
   const token = await _getToken();
+  const message = {
+    subject,
+    body: { contentType: 'Text', content: body },
+    toRecipients: [{ emailAddress: { address: String(to).trim() } }],
+  };
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    message.attachments = attachments.map((a) => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: a.name,
+      contentBytes: a.contentBytes || Buffer.from(a.content).toString('base64'),
+    }));
+  }
   await axios.post(
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(gm.sender)}/sendMail`,
-    {
-      message: {
-        subject,
-        body: { contentType: 'Text', content: body },
-        toRecipients: [{ emailAddress: { address: String(to).trim() } }],
-      },
-      saveToSentItems: true,
-    },
+    { message, saveToSentItems: true },
     { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 }
   );
-  logger.event('graph-mail-sent', { to, subject, sender: gm.sender });
+  logger.event('graph-mail-sent', { to, subject, sender: gm.sender, attachments: (attachments || []).length });
   return { sent: true };
 }
 

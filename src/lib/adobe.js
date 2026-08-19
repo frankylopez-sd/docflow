@@ -494,6 +494,40 @@ async function downloadSignedDocument(agreementId) {
 }
 
 /**
+ * The candidate's direct signing URL for an agreement. Adobe issues it a
+ * moment after the agreement goes out, so poll briefly; return null when it
+ * never materializes (callers fall back to "watch for the Adobe email").
+ * @returns {Promise<string|null>}
+ */
+async function getSigningUrl(agreementId, opts = {}) {
+  const { attempts = 5, delayMs = 2000 } = opts;
+  const cfg = config.load();
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await _limiter().acquire();
+      const headers = await _signHeaders();
+      const res = await axios.get(`${cfg.adobe.signApiUrl}/api/rest/v6/agreements/${agreementId}/signingUrls`, {
+        headers, timeout: 30000,
+      });
+      const sets = res.data && res.data.signingUrlSetInfos;
+      const url = sets && sets[0] && sets[0].signingUrls && sets[0].signingUrls[0]
+        && sets[0].signingUrls[0].esignUrl;
+      if (url) return url;
+    } catch (err) {
+      const status = err.response && err.response.status;
+      // 404 = Adobe is still preparing the agreement — keep polling
+      if (status && status !== 404) {
+        logger.warn('sign-signing-url-failed', { agreementId, status, error: err.message });
+        return null;
+      }
+    }
+    if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  logger.warn('sign-signing-url-unavailable', { agreementId });
+  return null;
+}
+
+/**
  * Create a signing agreement (wrapper around createEnvelope with better ergonomics).
  * @param {Object} opts {documentUrl, fileName, signers, message, dueDate}
  * @returns {Promise<{id:string, signers:Array}>}
@@ -526,6 +560,7 @@ module.exports = {
   ensureWebhook,
   getAgreementStatus,
   getSignedPDF,
+  getSigningUrl,
   downloadSignedDocument,
   generateOfferLetter,
   createSigningAgreement,

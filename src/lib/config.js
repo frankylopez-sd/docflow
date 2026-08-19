@@ -126,7 +126,7 @@ function load(options = {}) {
         awaitingInfo: env.MONDAY_STATUS_AWAITING_INFO || '② ⏳ Waiting',
         fieldsNeeded: env.MONDAY_STATUS_FIELDS_NEEDED || '③ 👤 Fill',
         docsInProgress: env.MONDAY_STATUS_DOCS || '④ ⚙️ Generating',
-        outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ⚙️ Signing',
+        outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ✉️ Sent',
         archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
         complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Done',
         missingFields: env.MONDAY_STATUS_MISSING || 'Missing Required Fields',
