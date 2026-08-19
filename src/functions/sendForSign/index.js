@@ -42,27 +42,19 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-status-update-failed', { itemId, error: err.message });
     });
 
-    // Define 3 signers in serial order. The board's supervisor column holds a
-    // display name (e.g. "Avani"), not an address — only use it if it is a
-    // real email, otherwise route to the manager distribution address.
+    // Signers by mode: 'candidate' sends straight to the new hire (Adobe
+    // emails them the document, one signature completes it); 'serial3' runs
+    // the HR -> Manager -> Employee chain.
     const isEmail = (s) => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-    const signers = [
-      {
-        email: 'hr@medwatchers.com', // HR Rep
-        name: 'HR Representative',
-        order: 0
-      },
-      {
-        email: isEmail(supervisor) ? supervisor : 'manager@medwatchers.com', // Manager
-        name: 'Manager',
-        order: 1
-      },
-      {
-        email: workEmail, // Employee
-        name: `${firstName} ${lastName}`,
-        order: 2
-      }
-    ];
+    const signers = cfg.adobe.signMode === 'serial3'
+      ? [
+          { email: 'hr@medwatchers.com', name: 'HR Representative', order: 0 },
+          { email: isEmail(supervisor) ? supervisor : 'manager@medwatchers.com', name: 'Manager', order: 1 },
+          { email: workEmail, name: `${firstName} ${lastName}`, order: 2 },
+        ]
+      : [
+          { email: workEmail, name: `${firstName} ${lastName}`, order: 0 },
+        ];
 
     logger.info('sendForSign-creating-agreement', { itemId, signerCount: signers.length });
 

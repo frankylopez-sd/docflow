@@ -9,6 +9,9 @@
  * All external APIs (Monday GraphQL, Adobe IMS/PDF/Sign, Azure Blob) mocked.
  */
 
+// This suite exercises the full 3-signer serial chain end to end
+process.env.ADOBE_SIGN_MODE = 'serial3';
+
 jest.mock('axios', () => ({ post: jest.fn(), get: jest.fn() }));
 jest.mock('@azure/storage-blob', () => require('./helpers/mockStorage').create());
 

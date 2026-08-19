@@ -55,6 +55,9 @@ function load(options = {}) {
       signClientId: env.ADOBE_SIGN_CLIENT_ID || null,
       signClientSecret: env.ADOBE_SIGN_CLIENT_SECRET || null,
       webhookUrl: env.ADOBE_WEBHOOK_URL || null,
+      // 'candidate' = only the new hire signs (Adobe emails them directly);
+      // 'serial3' = HR -> Manager -> Employee chain
+      signMode: env.ADOBE_SIGN_MODE || 'candidate',
       rateLimitPerMin: _int(env.DOCFLOW_ADOBE_RATE_LIMIT_PER_MIN, 500),
     },
 

@@ -126,15 +126,26 @@ async function processGenerate(context, queueItem) {
       frequency: payFrequency,
       startDate: startDate || new Date().toISOString().split('T')[0],
       generatedDate: new Date().toISOString().split('T')[0],
-      // Adobe Sign text tags, merged into the letter's signature block —
-      // Sign converts these into real signature/date fields for each signer
-      // (signer1 = HR, signer2 = Manager, signer3 = Employee).
-      sigHr: '{{Sig_es_:signer1:signature}}',
-      dateHr: '{{Dte_es_:signer1:date}}',
-      sigManager: '{{Sig_es_:signer2:signature}}',
-      dateManager: '{{Dte_es_:signer2:date}}',
-      sigEmployee: '{{Sig_es_:signer3:signature}}',
-      dateEmployee: '{{Dte_es_:signer3:date}}'
+      // Adobe Sign text tags — Sign converts these into real signature/date
+      // fields. Candidate mode: only the hire signs (signer1); serial mode
+      // maps HR/Manager/Employee to signers 1/2/3.
+      ...(cfg.adobe.signMode === 'serial3'
+        ? {
+            sigHr: '{{Sig_es_:signer1:signature}}',
+            dateHr: '{{Dte_es_:signer1:date}}',
+            sigManager: '{{Sig_es_:signer2:signature}}',
+            dateManager: '{{Dte_es_:signer2:date}}',
+            sigEmployee: '{{Sig_es_:signer3:signature}}',
+            dateEmployee: '{{Dte_es_:signer3:date}}',
+          }
+        : {
+            sigHr: '(on file)',
+            dateHr: '',
+            sigManager: '(on file)',
+            dateManager: '',
+            sigEmployee: '{{Sig_es_:signer1:signature}}',
+            dateEmployee: '{{Dte_es_:signer1:date}}',
+          })
     };
 
     // Select the offer-letter template from the hire's role signals.
