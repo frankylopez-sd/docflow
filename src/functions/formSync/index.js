@@ -92,16 +92,13 @@ async function handleFormSync(req) {
 
   const hireId = matches[0].id;
 
-  // Idempotency: Monday redelivers webhooks on timeout. If this submission's
-  // email is already on the hire, the sync already ran — do not repeat writes
-  // or re-post the notification update.
-  const submittedEmail = get(fc.personalEmail);
-  if (submittedEmail) {
-    const existing = await monday.getColumnValueJson(cfg.monday.onboardingBoardId, hireId, tc.personalEmail);
-    if (existing && existing.email && existing.email.toLowerCase() === submittedEmail.toLowerCase()) {
-      logger.event('formSync-already-synced', { formItemId: itemId, hireId });
-      return { status: 200, body: { synced: true, hireId, deduped: true } };
-    }
+  // Idempotency: Monday redelivers webhooks on timeout. Look for this sync's
+  // own comment marker — an email copied over by the ATS import must NOT
+  // count as "form already received".
+  const alreadySynced = await monday.hasUpdateContaining(hireId, 'Welcome form received').catch(() => false);
+  if (alreadySynced) {
+    logger.event('formSync-already-synced', { formItemId: itemId, hireId });
+    return { status: 200, body: { synced: true, hireId, deduped: true } };
   }
 
   // Build the column writes (only fields the candidate actually provided)

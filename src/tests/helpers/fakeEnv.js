@@ -171,6 +171,7 @@ function makeBackend() {
         name: row.name,
         board: { id: row.boardId },
         column_values: columnValues,
+        updates: updates.filter((u) => u.itemId === String(row.id)).map((u) => ({ text_body: u.body })),
       };
     });
     return { data: { data: { items: found } } };
