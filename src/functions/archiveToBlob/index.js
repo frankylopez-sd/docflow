@@ -67,9 +67,14 @@ async function processArchive(context, queueItem) {
 
     logger.info('archiveToBlob-downloaded', { agreementId, size: signedPdfBuffer.length });
 
-    // Upload to archive blob (permanent storage, non-SAS URL for Monday)
-    const safeName = String(employeeName || 'employee').replace(/[^\w-]+/g, '-');
-    const archiveFileName = `signed-offer-${safeName}-${itemId}-${Date.now()}.pdf`;
+    // Upload to archive blob (permanent storage, non-SAS URL for Monday).
+    // Organized like a filing cabinet: new-hires/Lastname-Firstname/…
+    const nameParts = String(employeeName || 'employee').replace(/-/g, ' ').trim().split(/\s+/);
+    const folder = nameParts.length > 1
+      ? `${nameParts[nameParts.length - 1]}-${nameParts.slice(0, -1).join('-')}`
+      : nameParts[0];
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const archiveFileName = `new-hires/${folder}/signed-offer-${dateStamp}-${itemId}.pdf`;
     const upload = await blob.uploadPDF('pdf-archive', archiveFileName, signedPdfBuffer);
     const archiveUrl = upload.url;
 
