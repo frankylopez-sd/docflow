@@ -78,6 +78,20 @@ async function handleAtsSync(req) {
     [cfg.monday.columns.payClass]: { labels: [boardCfg.payClass] },
   };
 
+  // Copy real candidate data from the ATS row onto the hire record
+  const copy = boardCfg.copy || {};
+  const tc = cfg.monday.formSync.targetColumns;
+  const atsGet = (colId) => {
+    const v = atsRow.columns[colId];
+    return v != null && v !== '' && typeof v !== 'object' ? v : null;
+  };
+  const email = atsGet(copy.email);
+  if (email) roleColumns[tc.personalEmail] = { email, text: email };
+  const phoneDigits = String(atsGet(copy.phone) || '').replace(/\D/g, '');
+  if (phoneDigits) roleColumns[tc.mobilePhone] = { phone: phoneDigits, countryShortName: 'US' };
+  const startDate = atsGet(copy.startDate);
+  if (startDate) roleColumns[tc.startDate] = { date: String(startDate).slice(0, 10) };
+
   if (exact) {
     // Hire already exists (e.g. created manually) — link it instead of duplicating
     onboardingItemId = exact.id;

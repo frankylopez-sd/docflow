@@ -127,12 +127,15 @@ function load(options = {}) {
             relationColumn: 'board_relation_mm586wsc',
             jobTitle: 'Pharmacist',
             payClass: 'RPH',
+            // ATS column -> value copied onto the hire at intake
+            copy: { email: 'email', phone: 'phone_mm4bf3mk', startDate: 'date_mm2m5jcj' },
           },
           [env.MONDAY_CLERK_ATS_BOARD_ID || '18395962118']: {
             name: 'Clerk-ATS',
             relationColumn: 'board_relation_mm586pas',
             jobTitle: 'Pharmacy Associate',
             payClass: 'Clerk',
+            copy: { email: 'email', phone: 'text_mkzz809m', startDate: 'date_mkzrc12e' },
           },
         },
       },
