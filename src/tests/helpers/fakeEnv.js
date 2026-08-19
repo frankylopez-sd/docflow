@@ -113,14 +113,20 @@ function makeBackend() {
       };
     }
 
-    // plain item read(s)
+    // plain item read(s). getColumnValueJson passes columnId to select just
+    // one column's raw value JSON — honor that filter like the real API does.
     const ids = vars.itemId || vars.itemIds || [];
-    const found = ids.map((id) => rows[id]).filter(Boolean).map((row) => ({
-      id: row.id,
-      name: row.name,
-      board: { id: row.boardId },
-      column_values: columnValuesFor(row),
-    }));
+    const wantedColumnIds = vars.columnId ? [].concat(vars.columnId).map(String) : null;
+    const found = ids.map((id) => rows[id]).filter(Boolean).map((row) => {
+      let columnValues = columnValuesFor(row);
+      if (wantedColumnIds) columnValues = columnValues.filter((cv) => wantedColumnIds.includes(cv.id));
+      return {
+        id: row.id,
+        name: row.name,
+        board: { id: row.boardId },
+        column_values: columnValues,
+      };
+    });
     return { data: { data: { items: found } } };
   }
 
@@ -228,4 +234,24 @@ function checkboxEvent(jwt) {
   };
 }
 
-module.exports = { PDF_BYTES, SIGNED_BYTES, makeBackend, installRoutes, makeMondayJwt, checkboxEvent };
+/**
+ * Offer-lifecycle status change event (HR review gate). Monday sends status
+ * column changes with the label under event.value.label.text.
+ * Default column id matches config.monday.columns.offerStatus.
+ */
+function offerStatusEvent(jwt, labelText, columnId = 'color_mm63ewwy') {
+  return {
+    headers: { authorization: jwt },
+    body: {
+      event: {
+        type: 'update_column_value',
+        boardId: 111,
+        pulseId: 555,
+        columnId,
+        value: { label: { text: labelText } },
+      },
+    },
+  };
+}
+
+module.exports = { PDF_BYTES, SIGNED_BYTES, makeBackend, installRoutes, makeMondayJwt, checkboxEvent, offerStatusEvent };

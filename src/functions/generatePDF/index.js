@@ -76,9 +76,12 @@ async function processGenerate(context, queueItem) {
       logger.info('generatePDF-hydrated-from-monday', { itemId });
     }
 
-    // Update Monday: status → "Documentation Generating"
+    // Update Monday: status → "Documentation Generating", offer → "Offer Generating"
     await monday.updateItemStatus(boardId, itemId, 'Documentation Generating').catch(err => {
       logger.warn('generatePDF-status-update-failed', { itemId, error: err.message });
+    });
+    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.generating).catch(err => {
+      logger.warn('generatePDF-offer-status-update-failed', { itemId, error: err.message });
     });
 
     // Prepare merge data for Adobe template
@@ -125,22 +128,18 @@ async function processGenerate(context, queueItem) {
       logger.warn('generatePDF-link-update-failed', { itemId, error: err.message });
     });
 
-    // Queue for signing (output binding matches function.json "signQueue")
-    context.bindings.signQueue = {
-      boardId,
-      itemId,
-      pdfUrl: tempUrl,
-      firstName,
-      lastName,
-      workEmail,
-      supervisor
-    };
+    // HR review gate: the offer stops here as "Offer Ready". Signing is
+    // queued by mondayWebhook only when HR flips the offer status to the
+    // approval label ("Packaged Approved").
+    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.ready).catch(err => {
+      logger.warn('generatePDF-offer-ready-update-failed', { itemId, error: err.message });
+    });
 
-    logger.info('generatePDF-queued-sign', { itemId });
+    logger.info('generatePDF-awaiting-hr-review', { itemId });
 
     context.res = {
       status: 200,
-      body: { itemId, pdfUrl: tempUrl, status: 'PDF generated and queued for signing' }
+      body: { itemId, pdfUrl: tempUrl, status: 'PDF generated — awaiting HR review (Offer Ready)' }
     };
 
   } catch (error) {

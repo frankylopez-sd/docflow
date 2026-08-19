@@ -15,9 +15,27 @@ module.exports = async function (context, queueItem) {
   const cfg = config.load();
 
   try {
-    const { boardId, itemId, pdfUrl, firstName, lastName, workEmail, supervisor } = queueItem;
+    let { boardId, itemId, pdfUrl, firstName, lastName, workEmail, supervisor } = queueItem;
 
     logger.info('sendForSign-start', { itemId });
+
+    // HR-approval messages carry only {boardId, itemId} — Monday is the
+    // database of record, so hydrate the PDF link and hire fields from it.
+    if (!pdfUrl) {
+      const link = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.pdfUrl);
+      pdfUrl = link && link.url;
+      if (!pdfUrl) {
+        throw new Error(`sendForSign: no PDF link on item ${itemId} (column ${cfg.monday.columns.pdfUrl}) — was the offer generated?`);
+      }
+    }
+    if (!firstName || !lastName || !workEmail) {
+      const hire = await monday.fetchHireData(boardId, itemId);
+      firstName = firstName || hire.firstName;
+      lastName = lastName || hire.lastName;
+      workEmail = workEmail || hire.workEmail;
+      supervisor = supervisor || hire.supervisor;
+      logger.info('sendForSign-hydrated-from-monday', { itemId });
+    }
 
     // Update Monday: status → "Sent for Signature"
     await monday.updateItemStatus(boardId, itemId, 'Sent for Signature').catch(err => {
@@ -69,6 +87,11 @@ module.exports = async function (context, queueItem) {
     const signerDetails = signers.map((s, idx) => `${idx + 1}. ${s.name} (${s.email})`).join('\n');
     await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.signerDetails, { text: signerDetails }).catch(err => {
       logger.warn('sendForSign-signers-update-failed', { itemId, error: err.message });
+    });
+
+    // Offer lifecycle: mark as sent
+    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sent).catch(err => {
+      logger.warn('sendForSign-offer-sent-update-failed', { itemId, error: err.message });
     });
 
     logger.info('sendForSign-complete', { itemId, agreementId });

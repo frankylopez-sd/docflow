@@ -12,7 +12,7 @@ jest.mock('@azure/identity', () => ({ DefaultAzureCredential: class DefaultAzure
 const axios = require('axios');
 const storageMock = require('@azure/storage-blob');
 const {
-  SIGNED_BYTES, makeBackend, installRoutes, makeMondayJwt, checkboxEvent,
+  SIGNED_BYTES, makeBackend, installRoutes, makeMondayJwt, checkboxEvent, offerStatusEvent,
 } = require('./helpers/fakeEnv');
 
 const config = require('../lib/config');
@@ -72,30 +72,51 @@ describe('Azure Function entrypoints', () => {
     expect(ctx.res.status).toBe(500);
   });
 
-  test('generatePDF entry hydrates hire data from Monday and enqueues signing', async () => {
+  test('generatePDF entry hydrates hire data from Monday and parks at the HR review gate', async () => {
     const ctx = makeContext();
     // Webhook-shaped queue message: only {boardId, itemId} — the rest is
     // hydrated from the Monday row (Monday is the database of record).
     await generatePDF(ctx, { boardId: '111', itemId: '555' });
-    const next = ctx.bindings.signQueue;
-    expect(next.pdfUrl).toContain('pdf-temp');
-    expect(next).toMatchObject({
-      boardId: '111',
-      itemId: '555',
-      firstName: 'Jane',
-      lastName: 'Doe',
-      workEmail: 'jane@medwatchers.com',
-    });
+    // HR review gate: generatePDF no longer enqueues signing. The offer parks
+    // at "Offer Ready" until HR flips the offer status to "Packaged Approved".
+    expect(ctx.bindings.signQueue).toBeUndefined();
     expect(backend.rows[555].written.status).toEqual({ label: 'Documentation Generating' });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: 'Offer Ready' });
+    expect(backend.rows[555].written.link_pdf.url).toContain('pdf-temp');
+    expect(ctx.res.status).toBe(200);
+    expect(ctx.res.body.status).toMatch(/awaiting HR review/i);
   });
 
-  test('sendForSign entry processes the sign queue message', async () => {
-    const genCtx = makeContext();
-    await generatePDF.processGenerate(genCtx, { boardId: '111', itemId: '555' });
+  test('mondayWebhook entry routes HR approval of the offer to the sign queue', async () => {
     const ctx = makeContext();
-    await sendForSign(ctx, genCtx.bindings.signQueue);
+    await mondayWebhook(ctx, offerStatusEvent(
+      makeMondayJwt('test-signing-secret'), 'Packaged Approved', config.load().monday.columns.offerStatus
+    ));
+    expect(ctx.res.status).toBe(200);
+    expect(ctx.res.body).toMatchObject({ queued: true, itemId: '555', route: 'sign' });
+    expect(ctx.bindings.generateQueue).toBeUndefined();
+    const signMsg = JSON.parse(ctx.bindings.signQueue);
+    expect(signMsg).toMatchObject({ boardId: '111', itemId: '555' });
+    expect(new Date(signMsg.approvedAt).getTime()).not.toBeNaN();
+  });
+
+  test('sendForSign entry processes the HR-approved sign queue message', async () => {
+    // The offer must exist first: generatePDF writes the PDF link column that
+    // sendForSign hydrates from (approval messages carry only {boardId, itemId}).
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    const ctx = makeContext();
+    await sendForSign(ctx, { boardId: '111', itemId: '555' });
     expect(backend.rows[555].written.status).toEqual({ label: 'Sent for Signature' });
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: 'Offer Sent' });
+  });
+
+  test('sendForSign entry fails clearly when no PDF link exists to hydrate', async () => {
+    // Approval arrived but the offer was never generated: the link column is
+    // empty, so hydration must throw (queue redelivery handles the retry).
+    await expect(sendForSign(makeContext(), { boardId: '111', itemId: '555' }))
+      .rejects.toThrow(/no PDF link/);
+    expect(backend.rows[555].written.status).toEqual({ label: 'Sign Failed' });
   });
 
   test('adobeWebhook entry enqueues archive work and echoes client id', async () => {
@@ -117,9 +138,10 @@ describe('Azure Function entrypoints', () => {
   });
 
   test('archiveToBlob entry archives from an agreement-only queue message', async () => {
-    const genCtx = makeContext();
-    await generatePDF.processGenerate(genCtx, { boardId: '111', itemId: '555' });
-    await sendForSign(makeContext(), genCtx.bindings.signQueue);
+    // Walk the new gate: generate the offer, then send with an HR-approval
+    // shaped {boardId, itemId} message (sendForSign hydrates the PDF link).
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555' });
     const ctx = makeContext();
     // Adobe webhook messages carry only the agreementId — archiveToBlob must
     // resolve the Monday item itself.

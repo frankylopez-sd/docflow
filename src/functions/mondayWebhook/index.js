@@ -130,6 +130,36 @@ async function handleWebhook(req, mondayRow = null) {
     };
   }
 
+  // HR review gate: offer-status flipped to the approval label → queue signing.
+  // Our own offer-status writes (Generating/Ready/Sent) never use the approval
+  // label, so this route cannot recurse.
+  if (isColumnEvent && event.columnId === cfg.monday.columns.offerStatus) {
+    const label = (event.value && event.value.label && (event.value.label.text || event.value.label))
+      || (typeof event.value === 'string' ? event.value : null);
+    if (label === cfg.monday.offerLabels.approved) {
+      logger.event('offer-approved-queueing-sign', { itemId, boardId, label });
+      return {
+        status: 200,
+        body: { queued: true, itemId: String(itemId), route: 'sign' },
+        queueMessage: null,
+        signMessage: {
+          boardId: String(boardId),
+          itemId: String(itemId),
+          approvedAt: new Date().toISOString(),
+          userId: claims?.userId || claims?.sub || undefined,
+        },
+        warnings: [],
+      };
+    }
+    logger.debug('monday-webhook-offer-status-ignored', { itemId, label });
+    return {
+      status: 200,
+      body: { ignored: true, reason: 'offer status change is not the approval label' },
+      queueMessage: null,
+      warnings: [],
+    };
+  }
+
   // Only react to the trigger checkbox being CHECKED
   const isTriggerColumn = !event.columnId || event.columnId === cfg.monday.columns.trigger;
   const checked = event.value && (event.value.checked === true || event.value.checked === 'true');
@@ -217,6 +247,15 @@ module.exports = async function (context, req) {
         context.bindings.generateQueue = JSON.stringify(result.queueMessage);
       } catch (err) {
         // Queue binding failure (503, will retry)
+        handleError = queueErrorToWebhookError(err);
+      }
+    }
+
+    // HR approval route: bind the signing message to the sign queue
+    if (result.signMessage) {
+      try {
+        context.bindings.signQueue = JSON.stringify(result.signMessage);
+      } catch (err) {
         handleError = queueErrorToWebhookError(err);
       }
     }

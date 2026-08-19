@@ -88,6 +88,14 @@ function load(options = {}) {
         payClass: env.MONDAY_COL_PAY_CLASS || 'dropdown_mm65aswt',
         flsaStatus: env.MONDAY_COL_FLSA_STATUS || 'dropdown_mm6576ra',
         workerType: env.MONDAY_COL_WORKER_TYPE || 'dropdown_mm65jpby',
+        // Offer lifecycle column (HR review gate) and its label vocabulary
+        offerStatus: env.MONDAY_COL_OFFER_STATUS || 'color_mm63ewwy',
+      },
+      offerLabels: {
+        generating: env.MONDAY_OFFER_LABEL_GENERATING || 'Offer Generating',
+        ready: env.MONDAY_OFFER_LABEL_READY || 'Offer Ready',
+        approved: env.MONDAY_OFFER_LABEL_APPROVED || 'Packaged Approved',
+        sent: env.MONDAY_OFFER_LABEL_SENT || 'Offer Sent',
       },
     },
 

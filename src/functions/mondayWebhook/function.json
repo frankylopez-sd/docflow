@@ -19,6 +19,13 @@
       "name": "generateQueue",
       "queueName": "docflow-generate",
       "connection": "AzureWebJobsStorage"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "signQueue",
+      "queueName": "docflow-sign",
+      "connection": "AzureWebJobsStorage"
     }
   ]
 }

@@ -129,6 +129,31 @@ async function fetchHireData(boardId, itemId) {
 }
 
 /**
+ * Read one column's raw JSON value (e.g. a link column's {url, text}).
+ * @returns {Promise<Object|null>} parsed value JSON, or null when unset
+ */
+async function getColumnValueJson(boardId, itemId, columnId) {
+  const query = `
+    query ($itemId: [ID!], $columnId: [String!]) {
+      items (ids: $itemId) {
+        column_values (ids: $columnId) { id value }
+      }
+    }`;
+  const data = await _gql(query, { itemId: [String(itemId)], columnId: [String(columnId)] }, 'monday-read-column-json');
+  const cv = data.items && data.items[0] && data.items[0].column_values && data.items[0].column_values[0];
+  if (!cv || !cv.value) return null;
+  try { return JSON.parse(cv.value); } catch (_) { return null; }
+}
+
+/**
+ * Update the offer-lifecycle status column (HR review gate vocabulary).
+ */
+async function updateOfferStatus(boardId, itemId, label) {
+  const cfg = config.load();
+  return updateItemColumn(boardId, itemId, cfg.monday.columns.offerStatus, { label });
+}
+
+/**
  * Read the template catalog board.
  * @returns {Promise<Array>} [{itemId, templateName, adobeTemplateId, dataFields, signers}]
  */
@@ -348,6 +373,8 @@ module.exports = {
   readRows,
   readTemplates,
   fetchHireData,
+  getColumnValueJson,
+  updateOfferStatus,
   updateStatus,
   updateItemStatus,
   updateItemColumn,
