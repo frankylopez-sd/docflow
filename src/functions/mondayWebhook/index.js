@@ -329,6 +329,11 @@ async function handleWebhook(req, mondayRow = null) {
     }
   }
 
+  // Instant acknowledgment — the human sees a reaction the second they click
+  await monday.logAction(itemId,
+    `🚀 Got it — ☑ Generate Docs received. Building the offer letter now; the review checklist lands here in about a minute.`
+  ).catch(() => {});
+
   // Build queue message for async PDF generation
   const queueMessage = {
     boardId: String(boardId),
