@@ -9,7 +9,7 @@ jest.mock('@azure/storage-blob', () => require('./helpers/mockStorage').create()
 
 const axios = require('axios');
 const storageMock = require('@azure/storage-blob');
-const { makeBackend, installRoutes } = require('./helpers/fakeEnv');
+const { makeBackend, installRoutes, makeMondayJwt } = require('./helpers/fakeEnv');
 
 const config = require('../lib/config');
 const monday = require('../lib/monday');
@@ -23,7 +23,7 @@ function makeContext() {
 
 function submissionEvent(pulseId = 601, boardId = '18427180595') {
   return {
-    headers: {},
+    headers: { authorization: makeMondayJwt('test-signing-secret') },
     body: { event: { type: 'create_pulse', pulseId, boardId } },
   };
 }
@@ -87,8 +87,31 @@ describe('formSync', () => {
 
   test('ignores non-creation events with 200', async () => {
     const ctx = makeContext();
-    await formSync(ctx, { headers: {}, body: { event: { type: 'update_column_value', pulseId: 601 } } });
+    const req = submissionEvent();
+    req.body.event.type = 'update_column_value';
+    await formSync(ctx, req);
     expect(ctx.res.status).toBe(200);
     expect(ctx.res.body.ignored).toBe(true);
+  });
+
+  test('rejects unsigned requests with 401', async () => {
+    const ctx = makeContext();
+    await formSync(ctx, { headers: {}, body: { event: { type: 'create_pulse', pulseId: 601, boardId: '18427180595' } } });
+    expect(ctx.res.status).toBe(401);
+  });
+
+  test('ignores creation events from any other board', async () => {
+    const ctx = makeContext();
+    await formSync(ctx, submissionEvent(555, '111')); // Onboarding board, not the form board
+    expect(ctx.res.status).toBe(200);
+    expect(ctx.res.body.ignored).toBe(true);
+  });
+
+  test('replayed submission is deduped, no second update posted', async () => {
+    await formSync(makeContext(), submissionEvent());
+    const ctx = makeContext();
+    await formSync(ctx, submissionEvent()); // same submission redelivered
+    expect(ctx.res.body).toMatchObject({ synced: true, deduped: true });
+    expect(backend.updates.filter((u) => u.itemId === '555')).toHaveLength(1);
   });
 });

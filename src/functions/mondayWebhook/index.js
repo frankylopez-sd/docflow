@@ -134,6 +134,17 @@ async function handleWebhook(req, mondayRow = null) {
   // with the candidate's personalized info-form link, ready for HR to send.
   const isCreateEvent = event.type === 'create_pulse' || event.type === 'create_item';
   if (isCreateEvent) {
+    // Dedupe: Monday redelivers on timeout — a brand-new item has no updates,
+    // so an existing update means the welcome packet was already posted.
+    const alreadyWelcomed = await monday.hasUpdates(itemId).catch(() => false);
+    if (alreadyWelcomed) {
+      return {
+        status: 200,
+        body: { welcomed: true, itemId: String(itemId), deduped: true },
+        queueMessage: null,
+        warnings: [],
+      };
+    }
     const hireName = event.pulseName || event.itemName || '';
     const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(hireName)}`;
     await monday.postUpdate(itemId,

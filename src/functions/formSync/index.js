@@ -3,6 +3,7 @@
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
+const { WebhookError, validateSignature } = require('../../lib/webhookErrors');
 
 /**
  * formSync: syncs a welcome-form submission onto the matching Onboarding
@@ -36,14 +37,27 @@ async function handleFormSync(req) {
     return { status: 200, body: { challenge: body.challenge } };
   }
 
+  // Validate the signed Monday webhook JWT (same gate as mondayWebhook)
+  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || null;
+  try {
+    validateSignature(auth, cfg.monday.signingSecret);
+  } catch (err) {
+    if (err instanceof WebhookError) {
+      err.log({ requestPath: '/api/formSync' });
+      return { status: err.response.status, body: err.response.body };
+    }
+    throw err;
+  }
+
   const event = body.event || {};
   const itemId = event.pulseId || event.itemId;
-  const eventBoardId = String(event.boardId || cfg.monday.formSync.boardId);
+  const eventBoardId = String(event.boardId || '');
 
-  // Only react to item creation on the form-response board
-  const isCreate = event.type === 'create_pulse' || event.type === 'create_item' || !event.type;
-  if (!itemId || !isCreate) {
-    return { status: 200, body: { ignored: true, reason: 'not a form submission event' } };
+  // STRICT gate: only item-creation events from the form-response board.
+  // event.boardId is caller-supplied — it must match the pinned board exactly.
+  const isCreate = event.type === 'create_pulse' || event.type === 'create_item';
+  if (!itemId || !isCreate || eventBoardId !== String(cfg.monday.formSync.boardId)) {
+    return { status: 200, body: { ignored: true, reason: 'not a form-board submission event' } };
   }
 
   const fc = cfg.monday.formSync.formColumns;
@@ -77,6 +91,18 @@ async function handleFormSync(req) {
   }
 
   const hireId = matches[0].id;
+
+  // Idempotency: Monday redelivers webhooks on timeout. If this submission's
+  // email is already on the hire, the sync already ran — do not repeat writes
+  // or re-post the notification update.
+  const submittedEmail = get(fc.personalEmail);
+  if (submittedEmail) {
+    const existing = await monday.getColumnValueJson(cfg.monday.onboardingBoardId, hireId, tc.personalEmail);
+    if (existing && existing.email && existing.email.toLowerCase() === submittedEmail.toLowerCase()) {
+      logger.event('formSync-already-synced', { formItemId: itemId, hireId });
+      return { status: 200, body: { synced: true, hireId, deduped: true } };
+    }
+  }
 
   // Build the column writes (only fields the candidate actually provided)
   const values = {};

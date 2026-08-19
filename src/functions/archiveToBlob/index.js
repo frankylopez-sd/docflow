@@ -42,6 +42,16 @@ async function processArchive(context, queueItem) {
       logger.info('archiveToBlob-item-resolved', { itemId, agreementId });
     }
 
+    // Idempotency: Adobe webhooks redeliver and storage queues are
+    // at-least-once. If this hire is already complete, the archive ran —
+    // exit successfully without duplicating blobs, updates, or BG checks.
+    const current = await monday.readRow(boardId, itemId).catch(() => null);
+    if (current && current.columns[cfg.monday.columns.status] === 'Onboarding Complete') {
+      logger.event('archiveToBlob-already-complete', { itemId, agreementId });
+      context.res = { status: 200, body: { itemId, status: 'already complete (idempotent replay)' } };
+      return;
+    }
+
     // Update Monday: status → "Archived"
     await monday.updateItemStatus(boardId, itemId, 'Archived').catch(err => {
       logger.warn('archiveToBlob-status-update-failed', { itemId, error: err.message });

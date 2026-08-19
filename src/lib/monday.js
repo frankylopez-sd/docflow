@@ -173,6 +173,19 @@ async function findItemsByName(boardId, name) {
 }
 
 /**
+ * Whether an item already has any updates (used for webhook-retry dedupe).
+ */
+async function hasUpdates(itemId) {
+  const query = `
+    query ($itemId: [ID!]) {
+      items (ids: $itemId) { updates (limit: 1) { id } }
+    }`;
+  const data = await _gql(query, { itemId: [String(itemId)] }, 'monday-has-updates');
+  const updates = data.items && data.items[0] && data.items[0].updates;
+  return Array.isArray(updates) && updates.length > 0;
+}
+
+/**
  * Post a visible update (comment) on an item — Monday notifies subscribers.
  */
 async function postUpdate(itemId, body) {
@@ -215,6 +228,15 @@ async function createBackgroundCheck(hireBoardId, hireItemId, employeeName) {
   const cfg = config.load();
   const bg = cfg.monday.backgroundCheck;
   if (!bg || !bg.boardId) return null;
+
+  // Idempotency: if the hire already links a background check, don't open
+  // another one (queue redelivery / webhook duplicates).
+  const existing = await getColumnValueJson(hireBoardId, hireItemId, bg.hireRelationColumn).catch(() => null);
+  const linked = existing && (existing.linkedPulseIds || existing.item_ids || []);
+  if (Array.isArray(linked) && linked.length > 0) {
+    logger.event('background-check-already-linked', { hireItemId });
+    return null;
+  }
 
   const columnValues = {
     [bg.columns.candidate]: String(employeeName || ''),
@@ -498,6 +520,7 @@ module.exports = {
   createBackgroundCheck,
   findItemsByName,
   postUpdate,
+  hasUpdates,
   updateItemColumns,
   adpReadiness,
   updateStatus,
