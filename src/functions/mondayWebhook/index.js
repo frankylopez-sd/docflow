@@ -207,6 +207,24 @@ async function handleWebhook(req, mondayRow = null) {
       };
     }
     if (label === cfg.monday.offerLabels.approved) {
+      // Guard: approving before a letter exists is the #1 sequence mistake.
+      // Explain precisely instead of queueing a doomed send.
+      const pdfLink = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.pdfUrl).catch(() => null);
+      if (!pdfLink || !pdfLink.url) {
+        await monday.logAction(itemId,
+          `⚠️ Can't send for signature yet — there's no offer letter on this card.\n\n`
+          + `WHY (exact): the "PDF Document" column (${cfg.monday.columns.pdfUrl}) is empty — "${cfg.monday.offerLabels.approved}" was selected before the letter was generated.\n\n`
+          + `THE ORDER: 1️⃣ fill the hire fields → 2️⃣ check ☑ Generate Docs → 3️⃣ review the PDF ("${cfg.monday.offerLabels.ready}") → 4️⃣ then select "${cfg.monday.offerLabels.approved}".\n\n`
+          + `I've reset the offer status — start at ☑ Generate Docs.`
+        ).catch(() => {});
+        await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.notStarted).catch(() => {});
+        return {
+          status: 200,
+          body: { blocked: true, reason: 'no generated letter on the item', itemId: String(itemId) },
+          queueMessage: null,
+          warnings: [],
+        };
+      }
       logger.event('offer-approved-queueing-sign', { itemId, boardId, label });
       await monday.logAction(itemId,
         `✅ Approval received — the offer is being sent for signature now. No further action needed; this item will update as signers complete.`,

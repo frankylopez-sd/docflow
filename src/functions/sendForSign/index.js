@@ -138,12 +138,23 @@ module.exports = async function (context, queueItem) {
     const failCfg = config.load();
     await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.statusLabels.signFailed).catch(() => {});
     await monday.updateOfferStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.offerLabels.failed).catch(() => {});
-    // Notify once (first attempt), not on every automatic retry
+    // Notify once (first attempt) with the FULL diagnosis — system, exact
+    // error, response code, and the precise fix. No guessing allowed.
     const attempt = context?.bindingData?.dequeueCount;
     if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
+      const httpCode = error.response ? error.response.status : null;
+      const apiBody = error.response && error.response.data ? JSON.stringify(error.response.data).slice(0, 300) : null;
+      const system = /no PDF link/i.test(error.message) ? 'Monday (missing data on the card)'
+        : /auth not configured|refresh|token|401/i.test(String(error.message) + httpCode) ? 'Adobe Sign (authentication)'
+        : httpCode ? 'Adobe Sign API' : 'Azure engine (sendForSign)';
+      const fix = /no PDF link/i.test(error.message)
+        ? `Generate the letter first: fill the hire fields → check ☑ Generate Docs → review → then "${failCfg.monday.offerLabels.approved}".`
+        : `Fix the cause below, then set Offer Letter Status back to "${failCfg.monday.offerLabels.approved}" to re-send.`;
       await monday.logAction(queueItem.itemId,
-        `❌ Sending for signature failed. The system retries automatically; to re-trigger manually, set Offer Letter Status back to "${failCfg.monday.offerLabels.approved}".`,
-        `sendForSign error: ${error.message}`
+        `❌ Sending for signature failed.\n\n`
+        + `SYSTEM: ${system}\n`
+        + `EXACT ERROR: ${error.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
+        + `FIX: ${fix}\n\n(The system also retries automatically.)`
       ).catch(() => {});
     }
 

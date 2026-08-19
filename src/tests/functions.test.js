@@ -89,6 +89,8 @@ describe('Azure Function entrypoints', () => {
   });
 
   test('mondayWebhook entry routes HR approval of the offer to the sign queue', async () => {
+    // Approval requires a generated letter on the card (sequence guard)
+    backend.rows[555].written[config.load().monday.columns.pdfUrl] = { url: 'https://teststore.blob.core.windows.net/pdf-temp/offer-555.pdf', text: 'Offer PDF' };
     const ctx = makeContext();
     await mondayWebhook(ctx, offerStatusEvent(
       makeMondayJwt('test-signing-secret'), config.load().monday.offerLabels.approved, config.load().monday.columns.offerStatus

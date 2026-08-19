@@ -200,12 +200,20 @@ async function processGenerate(context, queueItem) {
     const failCfg = config.load();
     await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.statusLabels.pdfFailed).catch(() => {});
     await monday.updateOfferStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.offerLabels.failed).catch(() => {});
-    // Notify once (first attempt), not on every automatic retry
+    // Notify once (first attempt) with the FULL diagnosis
     const attempt = context?.bindingData?.dequeueCount;
     if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
+      const httpCode = error.response ? error.response.status : null;
+      const apiBody = error.response && error.response.data ? JSON.stringify(error.response.data).slice(0, 300) : null;
+      const system = /Merge data missing/i.test(error.message) ? 'Monday (hire fields incomplete)'
+        : /Asset Not Found|documentgeneration|asset/i.test(String(error.message) + (apiBody || '')) ? 'Adobe PDF Services (template/asset)'
+        : /blob|storage/i.test(error.message) ? 'Azure storage'
+        : httpCode ? 'Adobe PDF Services API' : 'Azure engine (generatePDF)';
       await monday.logAction(queueItem.itemId,
-        `❌ Offer letter generation failed. The system retries automatically; if this status stays red, verify the hire fields are complete and re-check "Generate Docs".`,
-        `generatePDF error: ${error.message}`
+        `❌ Offer letter generation failed.\n\n`
+        + `SYSTEM: ${system}\n`
+        + `EXACT ERROR: ${error.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
+        + `FIX: address the cause above, then re-check ☑ Generate Docs. (The system also retries automatically.)`
       ).catch(() => {});
     }
 
