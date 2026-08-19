@@ -28,6 +28,20 @@ module.exports = async function (context, queueItem) {
         throw new Error(`sendForSign: no PDF link on item ${itemId} (column ${cfg.monday.columns.pdfUrl}) — was the offer generated?`);
       }
     }
+
+    // Stored SAS links expire after 24h and HR review is human-paced — a
+    // Friday letter approved Monday would 403. Re-mint a fresh link from the
+    // same blob at send time so approval age never matters.
+    try {
+      const blobLib = require('../../lib/blob');
+      const path = new URL(pdfUrl).pathname.split('/').filter(Boolean); // [container, ...key]
+      if (path.length >= 2) {
+        pdfUrl = await blobLib.freshSasUrl(path[0], path.slice(1).join('/'));
+        logger.info('sendForSign-sas-reminted', { itemId });
+      }
+    } catch (err) {
+      logger.warn('sendForSign-sas-remint-failed-using-stored', { itemId, error: err.message });
+    }
     if (!firstName || !lastName || !workEmail) {
       const hire = await monday.fetchHireData(boardId, itemId);
       firstName = firstName || hire.firstName;

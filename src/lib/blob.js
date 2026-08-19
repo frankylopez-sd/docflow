@@ -153,6 +153,14 @@ async function downloadPDF(container, key) {
   }
 }
 
+/**
+ * Mint a fresh read SAS for an existing blob — stored SAS links expire after
+ * 24h, so human-paced flows (HR approving days later) must re-mint at use.
+ */
+async function freshSasUrl(container, key, ttlHours = SAS_TTL_HOURS) {
+  return _sasUrl(_primary(), container, key, ttlHours);
+}
+
 /** Delete a blob (no-op success if it is already gone). */
 async function deletePDF(container, key) {
   const client = _primary();
@@ -189,6 +197,7 @@ function blobUrl(container, key) {
 module.exports = {
   uploadPDF,
   downloadPDF,
+  freshSasUrl,
   deletePDF,
   listOldFiles,
   blobUrl,

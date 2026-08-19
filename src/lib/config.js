@@ -123,15 +123,11 @@ function load(options = {}) {
         pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed',
         signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed',
       },
-      // Ordered journeys (drive the status-narrator comments)
-      statusOrder: [
-        '① 👤 Send', '② ⏳ Waiting', '③ 👤 Fill', '④ ⚙️ Generating',
-        '⑤ ⚙️ Signing', '⑥ ⚙️ Archiving', '⑦ 🎉 Done',
-      ],
-      offerOrder: [
-        '① Idle', '② ⚙️ Generating', '③ 👤 Review', '④ ✅ Approve',
-        '⑤ ⚙️ Signing', '⑥ 🎉 Signed',
-      ],
+      // Ordered journeys (drive the status-narrator comments).
+      // Derived below from the label objects so env overrides can never
+      // desync the narration from the real labels.
+      statusOrder: null,
+      offerOrder: null,
       // ATS intake: candidates flip to the hired status on an ATS board →
       // an Onboarding item is created and linked (mirror columns populate).
       atsIntake: {
@@ -260,6 +256,17 @@ function load(options = {}) {
     tempMaxAgeHours: _int(env.DOCFLOW_TEMP_MAX_AGE_HOURS, 168),
     webhookRateLimitThreshold: _int(env.DOCFLOW_QUEUE_RATE_LIMIT_THRESHOLD, 1000),
   };
+
+  // Journeys derive from the label objects — env overrides stay in sync
+  const sl = cfg.monday.statusLabels;
+  cfg.monday.statusOrder = [
+    sl.welcome, sl.awaitingInfo, sl.fieldsNeeded, sl.docsInProgress,
+    sl.outForSignature, sl.archiving, sl.complete,
+  ];
+  const ol = cfg.monday.offerLabels;
+  cfg.monday.offerOrder = [
+    ol.notStarted, ol.generating, ol.ready, ol.approved, ol.sent, ol.signed,
+  ];
 
   _cache = cfg;
   return cfg;

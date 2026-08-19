@@ -131,7 +131,9 @@ async function handleWebhook(req, mondayRow = null) {
     const order = cfg.monday.statusOrder;
     const newIdx = order.indexOf(labelText);
     const prevIdx = prevText ? order.indexOf(prevText) : -1;
-    const inOrder = newIdx !== -1 && (prevIdx === -1 || newIdx === prevIdx + 1 || newIdx === prevIdx);
+    // Backward moves are the system's own writes (regeneration: ⑤→④ etc.) —
+    // stay silent on those, exactly like the package-status branch below.
+    const inOrder = newIdx !== -1 && (prevIdx === -1 || newIdx <= prevIdx + 1);
     const isSystemLabel = [
       cfg.monday.statusLabels.missingFields, cfg.monday.statusLabels.pdfFailed, cfg.monday.statusLabels.signFailed,
       'Create New Hire', 'Ready to Create',
