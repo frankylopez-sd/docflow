@@ -351,7 +351,7 @@ describe('generatePDF merge-data contract', () => {
         compensation: 65000,              // payRate
         frequency: 'Annual',              // payFrequency
         startDate: '2026-09-01',
-      }));
+      }), { templateKey: 'offer-letter-clerk.docx' }); // non-pharmacist -> clerk letter
     } finally {
       spy.mockRestore();
     }

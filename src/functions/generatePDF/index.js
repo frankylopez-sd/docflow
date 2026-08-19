@@ -61,9 +61,16 @@ async function processGenerate(context, queueItem) {
       generatedDate: new Date().toISOString().split('T')[0]
     };
 
+    // Select the offer-letter template by role: licensed pharmacists get the
+    // salaried/licensure letter, everyone else the standard hourly letter.
+    const isPharmacist = /^pharmacist\b/i.test(String(adpJobTitle || ''));
+    const templateKey = isPharmacist
+      ? (process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER_RPH || 'offer-letter-rph.docx')
+      : (process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER || 'offer-letter-clerk.docx');
+
     // Call Adobe PDF Services to merge template
-    logger.info('generatePDF-calling-adobe', { itemId });
-    const pdfBuffer = await adobe.generateOfferLetter(mergeData);
+    logger.info('generatePDF-calling-adobe', { itemId, templateKey });
+    const pdfBuffer = await adobe.generateOfferLetter(mergeData, { templateKey });
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
       throw new Error('Adobe returned empty PDF');
