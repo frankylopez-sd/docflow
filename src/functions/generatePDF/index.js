@@ -125,7 +125,16 @@ async function processGenerate(context, queueItem) {
       compensation: payRate,
       frequency: payFrequency,
       startDate: startDate || new Date().toISOString().split('T')[0],
-      generatedDate: new Date().toISOString().split('T')[0]
+      generatedDate: new Date().toISOString().split('T')[0],
+      // Adobe Sign text tags, merged into the letter's signature block —
+      // Sign converts these into real signature/date fields for each signer
+      // (signer1 = HR, signer2 = Manager, signer3 = Employee).
+      sigHr: '{{Sig_es_:signer1:signature}}',
+      dateHr: '{{Dte_es_:signer1:date}}',
+      sigManager: '{{Sig_es_:signer2:signature}}',
+      dateManager: '{{Dte_es_:signer2:date}}',
+      sigEmployee: '{{Sig_es_:signer3:signature}}',
+      dateEmployee: '{{Dte_es_:signer3:date}}'
     };
 
     // Select the offer-letter template from the hire's role signals.

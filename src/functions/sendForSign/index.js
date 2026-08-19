@@ -105,6 +105,25 @@ module.exports = async function (context, queueItem) {
       `Adobe Sign agreement ${agreementId} created with ${signers.length} serial signers; completion webhook + 30-min poller are watching it.`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
+    // The candidate package: one ready-to-send email with every link in one
+    // place (HR reviews, personalizes, sends — one email instead of loose files)
+    const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
+    await monday.logAction(itemId,
+      `📦 Candidate package — ready to send to ${firstName}:\n\n`
+      + `— — — — — — — — — —\n`
+      + `Subject: Your MedWatchers offer is on its way, ${firstName}! ✍️\n\n`
+      + `Hi ${firstName},\n\n`
+      + `Great news — your official offer letter is out for signatures right now.\n\n`
+      + `What happens next:\n`
+      + `  1. You'll receive an email from Adobe Sign — open it and sign right on your phone or computer (takes under a minute).\n`
+      + `  2. A background check consent request will follow — nothing to do until it arrives.\n`
+      + `  3. Once everything's signed, we'll send your first-day details.\n\n`
+      + `Questions anytime — just reply here. We can't wait!\n\n`
+      + `Warmly,\nThe MedWatchers HR Team\n`
+      + `— — — — — — — — — —\n\n`
+      + `🔗 For HR reference (do not forward): offer PDF ${pdfUrl ? '(PDF Document column)' : ''} · agreement ${agreementId} · this card: ${cardLink}`
+    ).catch(err => logger.warn('sendForSign-package-notify-failed', { itemId, error: err.message }));
+
     logger.info('sendForSign-complete', { itemId, agreementId });
 
     context.res = {
