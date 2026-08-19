@@ -149,7 +149,7 @@ module.exports = async function (context, queueItem) {
         : httpCode ? 'Adobe Sign API' : 'Azure engine (sendForSign)';
       const fix = /no PDF link/i.test(error.message)
         ? `Generate the letter first: fill the hire fields → check ☑ Generate Docs → review → then "${failCfg.monday.offerLabels.approved}".`
-        : `Fix the cause below, then set Offer Letter Status back to "${failCfg.monday.offerLabels.approved}" to re-send.`;
+        : `Fix the cause below, then re-select "${failCfg.monday.offerLabels.approved}" to re-send.`;
       await monday.logAction(queueItem.itemId,
         `❌ Sending for signature failed.\n\n`
         + `SYSTEM: ${system}\n`

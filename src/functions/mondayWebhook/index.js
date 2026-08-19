@@ -144,7 +144,7 @@ async function handleWebhook(req, mondayRow = null) {
         `ℹ️ Status was set to "${labelText}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: dragging this column doesn't run anything.\n\n`
         + `WHAT "${labelText}" MEANS: step ${stepNo} of ${order.length} in the journey. Next after it: "${next}".\n\n`
         + `THE ORDER: ${order.join(' → ')}\n\n`
-        + `WHAT ACTUALLY DRIVES THE MACHINE: ☑ Generate Docs (builds the letter) and Offer Letter Status "${cfg.monday.offerLabels.approved}" (sends it). Everything else moves by itself.`
+        + `WHAT ACTUALLY DRIVES THE MACHINE: ☑ Generate Docs (builds the letter) and the "${cfg.monday.offerLabels.approved}" label (sends it). Everything else moves by itself.`
       ).catch(() => {});
     }
     logger.debug('monday-webhook-status-narrated', { itemId, labelText, prevText, inOrder });
@@ -278,7 +278,7 @@ async function handleWebhook(req, mondayRow = null) {
     const oInOrder = oIdx !== -1 && (oPrevIdx === -1 || oIdx <= oPrevIdx + 1);
     if (!oInOrder && oIdx !== -1) {
       await monday.logAction(itemId,
-        `ℹ️ Offer Letter Status was set to "${label}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: this label is automation-owned, selecting it by hand doesn't ${label.includes('Signing') ? 'send anything for signature' : 'run anything'}.\n\n`
+        `ℹ️ The package status was set to "${label}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: this label is automation-owned, selecting it by hand doesn't ${label.includes('Signing') ? 'send anything for signature' : 'run anything'}.\n\n`
         + `THE OFFER ORDER: ${oOrder.join(' → ')}\n\n`
         + `THE TWO CONTROLS: ☑ Generate Docs builds the letter · "${cfg.monday.offerLabels.approved}" sends it (only works once a letter exists). Everything else moves by itself.`
       ).catch(() => {});

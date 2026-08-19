@@ -28,7 +28,7 @@ function makeBackend() {
         { id: 'text_mm65hxkh', text: 'jane@medwatchers.com', title: 'Work Email' },
         { id: 'dropdown_mm65th43', text: 'Pharmacy Tech', title: 'ADP Job Title' },
         { id: 'dropdown_mm658qx8', text: 'Pharmacy', title: 'ADP Department' },
-        { id: 'dropdown_mm65wk46', text: 'Mayra R', title: 'Supervisor' },
+        { id: 'text_mm6ch89a', text: 'Mayra R', title: 'Supervisor' },
         { id: 'numeric_mm65mx3m', text: '65000', title: 'Pay Rate' },
         { id: 'dropdown_mm658n1t', text: 'Annual', title: 'Pay Frequency' },
       ],

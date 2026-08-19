@@ -85,7 +85,7 @@ function load(options = {}) {
         workEmail: env.MONDAY_COL_WORK_EMAIL || 'text_mm65hxkh',
         jobTitle: env.MONDAY_COL_JOB_TITLE || 'dropdown_mm65th43',
         department: env.MONDAY_COL_DEPARTMENT || 'dropdown_mm658qx8',
-        supervisorName: env.MONDAY_COL_SUPERVISOR_NAME || 'dropdown_mm65wk46',
+        supervisorName: env.MONDAY_COL_SUPERVISOR_NAME || 'text_mm6ch89a',
         payRate: env.MONDAY_COL_PAY_RATE || 'numeric_mm65mx3m',
         payFrequency: env.MONDAY_COL_PAY_FREQUENCY || 'dropdown_mm658n1t',
         payClass: env.MONDAY_COL_PAY_CLASS || 'dropdown_mm65aswt',

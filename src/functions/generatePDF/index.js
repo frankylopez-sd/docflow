@@ -181,7 +181,7 @@ async function processGenerate(context, queueItem) {
       + `  ☐ Compensation & frequency right (${payRate} ${payFrequency})\n`
       + `  ☐ Start date right (${startDate})\n`
       + `  ☐ Supervisor right (${supervisor})\n\n`
-      + `Looks good → set Offer Letter Status to "${cfg.monday.offerLabels.approved}" (this sends it automatically).\n`
+      + `Looks good → select "${cfg.monday.offerLabels.approved}" (this sends it automatically).\n`
       + `Something off → fix the field, re-check "Generate Docs" to regenerate. Or "${cfg.monday.offerLabels.denied}" / "${cfg.monday.offerLabels.moreInfo}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
