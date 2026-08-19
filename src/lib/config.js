@@ -61,6 +61,16 @@ function load(options = {}) {
       rateLimitPerMin: _int(env.DOCFLOW_ADOBE_RATE_LIMIT_PER_MIN, 500),
     },
 
+    // Microsoft Graph mail (auto-send as a MedWatchers mailbox). Optional:
+    // until clientId + clientSecret + sender exist in app settings, the
+    // system posts ready-to-send draft comments instead (pre-email behavior).
+    graphMail: {
+      tenantId: env.GRAPH_TENANT_ID || '80edf08e-c174-4cee-901d-ad05e88456c1',
+      clientId: env.GRAPH_CLIENT_ID || null,
+      clientSecret: env.GRAPH_CLIENT_SECRET || null,
+      sender: env.MAIL_SENDER || null,
+    },
+
     monday: {
       token: env.MONDAY_API_TOKEN,
       apiUrl: env.MONDAY_API_URL || 'https://api.monday.com/v2',
@@ -157,6 +167,18 @@ function load(options = {}) {
       templateFiles: {
         keyColumn: env.MONDAY_TPL_KEY_COLUMN || 'text_mm64n4ts',
         fileColumn: env.MONDAY_TPL_FILE_COLUMN || 'file_mm6csbxn',
+      },
+      // Team-editable EMAIL wording (Email Templates board 18427287360):
+      // Subject/Body per key — HR edits the text in Monday, the next send
+      // uses it. Missing/unchecked rows fall back to built-in wording.
+      emailTemplates: {
+        boardId: env.MONDAY_EMAIL_TEMPLATES_BOARD_ID || '18427287360',
+        columns: {
+          key: 'text_mm6cc45p',
+          subject: 'text_mm6cna',
+          body: 'long_text_mm6ca0v6',
+          active: 'boolean_mm6cgb98',
+        },
       },
       // The living process guide (linked from column headers and key updates)
       playbookUrl: env.MONDAY_PLAYBOOK_URL || 'https://medwatchers.monday.com/docs/18427186375',

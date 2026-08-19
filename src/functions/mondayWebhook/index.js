@@ -162,10 +162,10 @@ async function handleWebhook(req, mondayRow = null) {
   // with the candidate's personalized info-form link, ready for HR to send.
   const isCreateEvent = event.type === 'create_pulse' || event.type === 'create_item';
   if (isCreateEvent) {
-    // Dedupe: Monday redelivers on timeout. Look for the welcome marker
-    // specifically — other updates (e.g. the ATS import note) must not
-    // suppress the welcome packet.
-    const alreadyWelcomed = await monday.hasUpdateContaining(itemId, 'Welcome packet ready').catch(() => false);
+    // Dedupe: Monday redelivers on timeout. Both welcome comment variants
+    // (auto-sent and ready-to-send draft) carry the "Welcome packet" marker —
+    // other updates (e.g. the ATS import note) must not suppress the welcome.
+    const alreadyWelcomed = await monday.hasUpdateContaining(itemId, 'Welcome packet').catch(() => false);
     if (alreadyWelcomed) {
       return {
         status: 200,
@@ -177,28 +177,57 @@ async function handleWebhook(req, mondayRow = null) {
     const hireName = event.pulseName || event.itemName || '';
     const firstName = String(hireName).trim().split(/\s+/)[0] || 'there';
     const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(hireName)}`;
-    await monday.logAction(itemId,
-      `👋 Welcome package is prepped and ready to send! Here's a ready-to-go email — just copy, paste, and send it to the candidate:\n\n`
-      + `— — — — — — — — — —\n`
-      + `Subject: Welcome to MedWatchers, ${firstName}! 🎉\n\n`
-      + `Hi ${firstName},\n\n`
+
+    // Wording is team-editable on the Email Templates board; the built-in
+    // text below is the fallback when the row is missing or unchecked.
+    const mailer = require('../../lib/mailer');
+    const tpl = await monday.getEmailTemplate('welcome').catch(() => null);
+    const fill = { firstName, fullName: String(hireName).trim(), formLink };
+    const subject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}}! 🎉', fill);
+    const emailBody = mailer.renderTemplate((tpl && tpl.body)
+      || `Hi {{firstName}},\n\n`
       + `Congratulations and welcome to the MedWatchers family! We're so excited to have you.\n\n`
-      + `To get your paperwork and first day ready, please fill out this quick 3-minute form:\n${formLink}\n\n`
+      + `To get your paperwork and first day ready, please fill out this quick 3-minute form:\n{{formLink}}\n\n`
       + `A couple of things coming your way soon:\n`
       + `  • Your official offer letter to review and sign (arrives by email)\n`
       + `  • A background check consent request — nothing to do until it lands in your inbox\n\n`
       + `Questions anytime — just reply to this email. See you soon!\n\n`
-      + `Warmly,\nThe MedWatchers HR Team\n`
-      + `— — — — — — — — — —\n\n`
-      + `Once they submit the form, their info fills in here on its own and this card moves forward by itself. 💜`
+      + `Warmly,\nThe MedWatchers HR Team`, fill);
+
+    // Auto-send when Graph mail is armed: personal email first (ATS/form),
+    // work email fallback. Send failures fall back to the draft comment.
+    let sentTo = null;
+    if (mailer.isConfigured()) {
+      const row = await monday.readRow(boardId, itemId).catch(() => null);
+      const rawTo = row && (row.columns[cfg.monday.formSync.targetColumns.personalEmail]
+        || row.columns[cfg.monday.columns.workEmail]);
+      const to = typeof rawTo === 'string' ? rawTo : (rawTo && (rawTo.email || rawTo.text)) || null;
+      if (to && /@/.test(to)) {
+        try {
+          const result = await mailer.sendMail({ to, subject, body: emailBody });
+          if (result.sent) sentTo = to;
+        } catch (err) {
+          logger.warn('monday-webhook-welcome-email-failed', { itemId, error: err.message });
+        }
+      }
+    }
+
+    const emailBlock = `— — — — — — — — — —\nSubject: ${subject}\n\n${emailBody}\n— — — — — — — — — —`;
+    await monday.logAction(itemId, sentTo
+      ? `✉️ Welcome packet sent automatically to ${sentTo} (from ${cfg.graphMail.sender}). Copy for the record:\n\n`
+        + `${emailBlock}\n\n`
+        + `Once they submit the form, their info fills in here on its own and this card moves forward by itself. 💜`
+      : `👋 Welcome packet ready to send! Here's a ready-to-go email — just copy, paste, and send it to the candidate:\n\n`
+        + `${emailBlock}\n\n`
+        + `Once they submit the form, their info fills in here on its own and this card moves forward by itself. 💜`
     ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingInfo).catch((err) => {
       logger.warn('monday-webhook-welcome-status-failed', { itemId, error: err.message });
     });
-    logger.event('welcome-blast-posted', { itemId, hireName });
+    logger.event('welcome-blast-posted', { itemId, hireName, emailed: Boolean(sentTo) });
     return {
       status: 200,
-      body: { welcomed: true, itemId: String(itemId) },
+      body: { welcomed: true, itemId: String(itemId), emailed: Boolean(sentTo) },
       queueMessage: null,
       warnings: [],
     };

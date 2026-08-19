@@ -22,6 +22,7 @@ function _limiter() {
 
 function _resetState() {
   _rateLimiter = null;
+  _emailTemplateCache.clear();
 }
 
 async function _gql(query, variables = {}, label = 'monday-query') {
@@ -348,6 +349,61 @@ async function getTemplateFile(templateKey) {
   return { buffer: Buffer.from(res.data), assetId: String(latest.id), name: row.name };
 }
 
+// Email templates change at human speed — a short cache keeps a burst of
+// sends from re-reading the board while still picking up edits fast.
+const _emailTemplateCache = new Map(); // key -> { tpl, at }
+
+/**
+ * Team-editable email wording: fetch the Active row on the Email Templates
+ * board whose Key matches. Returns {subject, body} or null (callers fall
+ * back to the built-in wording).
+ */
+async function getEmailTemplate(templateKey) {
+  const cfg = config.load();
+  const et = cfg.monday.emailTemplates;
+  if (!et || !et.boardId) return null;
+
+  const cached = _emailTemplateCache.get(templateKey);
+  if (cached && Date.now() - cached.at < 60000) return cached.tpl;
+
+  const c = et.columns;
+  const query = `
+    query ($boardId: [ID!]) {
+      boards (ids: $boardId) {
+        items_page (limit: 50) {
+          items {
+            id
+            column_values (ids: ["${c.key}", "${c.subject}", "${c.body}", "${c.active}"]) { id text value }
+          }
+        }
+      }
+    }`;
+  const data = await _gql(query, { boardId: [String(et.boardId)] }, 'monday-email-template');
+  const items = (data.boards && data.boards[0] && data.boards[0].items_page && data.boards[0].items_page.items) || [];
+  const cvOf = (item, id) => (item.column_values || []).find((cv) => cv.id === id) || {};
+
+  let tpl = null;
+  const row = items.find((i) => String(cvOf(i, c.key).text || '').trim() === templateKey);
+  if (row) {
+    let active = true;
+    try {
+      const raw = cvOf(row, c.active).value;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        active = parsed && (parsed.checked === true || parsed.checked === 'true');
+      } else {
+        active = false; // never checked
+      }
+    } catch (_) { /* unparseable -> treat as active */ }
+    const subject = cvOf(row, c.subject).text;
+    const body = cvOf(row, c.body).text;
+    if (active && subject && body) tpl = { subject, body };
+  }
+  _emailTemplateCache.set(templateKey, { tpl, at: Date.now() });
+  logger.event('email-template-loaded', { templateKey, fromBoard: Boolean(tpl) });
+  return tpl;
+}
+
 /**
  * Read the template catalog board.
  * @returns {Promise<Array>} [{itemId, templateName, adobeTemplateId, dataFields, signers}]
@@ -600,6 +656,7 @@ module.exports = {
   logAction,
   hasUpdates,
   hasUpdateContaining,
+  getEmailTemplate,
   updateItemColumns,
   adpReadiness,
   updateStatus,
