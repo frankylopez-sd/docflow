@@ -49,7 +49,7 @@ describe('mondayWebhook routing', () => {
     expect(updates[0].body).toContain(encodeURIComponent('Jane Doe'));
 
     // The welcome route now also moves the onboarding status to step ②.
-    expect(backend.rows[555].written.status).toEqual({ label: '② ⏳ Awaiting Candidate Info' });
+    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.awaitingInfo });
   });
 
   test('offer status "Denied" is documented and queues nothing', async () => {
@@ -60,7 +60,7 @@ describe('mondayWebhook routing', () => {
       boardId: '111',
       pulseId: 555,
       columnId: cfg.monday.columns.offerStatus,
-      value: { label: { text: '🛑 Denied' } },
+      value: { label: { text: cfg.monday.offerLabels.denied } },
     }));
     expect(ctx.res.status).toBe(200);
     expect(ctx.res.body.documented).toBe(true);

@@ -134,9 +134,10 @@ async function handleWebhook(req, mondayRow = null) {
   // with the candidate's personalized info-form link, ready for HR to send.
   const isCreateEvent = event.type === 'create_pulse' || event.type === 'create_item';
   if (isCreateEvent) {
-    // Dedupe: Monday redelivers on timeout — a brand-new item has no updates,
-    // so an existing update means the welcome packet was already posted.
-    const alreadyWelcomed = await monday.hasUpdates(itemId).catch(() => false);
+    // Dedupe: Monday redelivers on timeout. Look for the welcome marker
+    // specifically — other updates (e.g. the ATS import note) must not
+    // suppress the welcome packet.
+    const alreadyWelcomed = await monday.hasUpdateContaining(itemId, 'Welcome packet ready').catch(() => false);
     if (alreadyWelcomed) {
       return {
         status: 200,

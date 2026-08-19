@@ -185,6 +185,20 @@ async function hasUpdates(itemId) {
   return Array.isArray(updates) && updates.length > 0;
 }
 
+/**
+ * Whether an item already has an update containing the given text — a
+ * targeted dedupe that ignores unrelated updates (e.g. ATS import notes).
+ */
+async function hasUpdateContaining(itemId, needle) {
+  const query = `
+    query ($itemId: [ID!]) {
+      items (ids: $itemId) { updates (limit: 25) { text_body } }
+    }`;
+  const data = await _gql(query, { itemId: [String(itemId)] }, 'monday-has-update-containing');
+  const updates = (data.items && data.items[0] && data.items[0].updates) || [];
+  return updates.some((u) => u && typeof u.text_body === 'string' && u.text_body.includes(needle));
+}
+
 /** Current time in Pacific local time (the team's clock). */
 function ptTimestamp() {
   const formatted = new Intl.DateTimeFormat('en-US', {
@@ -544,6 +558,7 @@ module.exports = {
   postUpdate,
   logAction,
   hasUpdates,
+  hasUpdateContaining,
   updateItemColumns,
   adpReadiness,
   updateStatus,

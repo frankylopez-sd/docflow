@@ -53,6 +53,18 @@ function makeBackend() {
         location1ikc72st: { lat: '40.76', lng: '-111.89', address: '123 Main St, Salt Lake City, UT 84101' },
       },
     },
+    701: {
+      id: '701',
+      name: 'Rita Pharmacist',
+      boardId: '18404160361', // RPH-ATS candidate board (config.monday.atsIntake)
+      base: [
+        { id: 'text_ats_first', text: 'Rita', title: 'First Name' },
+        { id: 'text_ats_last', text: 'Pharmacist', title: 'Last Name' },
+        { id: 'email_ats', text: 'rita.pharmacist@gmail.com', title: 'Email' },
+        { id: 'color_mkzr88cj', text: 'Hired (Closed)', title: 'Candidate Status' },
+      ],
+      written: {},
+    },
   };
   const archiveItems = [];
   const updates = []; // {itemId, body} posted via create_update

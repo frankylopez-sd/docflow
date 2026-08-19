@@ -91,29 +91,50 @@ function load(options = {}) {
         // Offer lifecycle column (HR review gate) and its label vocabulary
         offerStatus: env.MONDAY_COL_OFFER_STATUS || 'color_mm63ewwy',
       },
-      // Offer Letter Status vocabulary (ordered ①→⑥, 👤 human / ⚙️ automated)
+      // Offer Letter Status vocabulary (ordered ①→⑥; one-word verbs:
+      // imperative = a person acts, -ing = automation in progress)
       offerLabels: {
-        notStarted: env.MONDAY_OFFER_LABEL_NOT_STARTED || '① Not Started',
-        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating Offer',
-        ready: env.MONDAY_OFFER_LABEL_READY || '③ 👤 Review Offer (HR)',
-        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Approved — Send It',
-        sent: env.MONDAY_OFFER_LABEL_SENT || '⑤ ⚙️ Out for Signature',
-        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑥ 🎉 Signed & Archived',
-        moreInfo: env.MONDAY_OFFER_LABEL_MORE_INFO || '✋ More Info Required',
+        notStarted: env.MONDAY_OFFER_LABEL_NOT_STARTED || '① Idle',
+        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating',
+        ready: env.MONDAY_OFFER_LABEL_READY || '③ 👤 Review',
+        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Approve',
+        sent: env.MONDAY_OFFER_LABEL_SENT || '⑤ ⚙️ Signing',
+        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑥ 🎉 Signed',
+        moreInfo: env.MONDAY_OFFER_LABEL_MORE_INFO || '✋ Revise',
         denied: env.MONDAY_OFFER_LABEL_DENIED || '🛑 Denied',
-        failed: env.MONDAY_OFFER_LABEL_FAILED || '❌ Failed — See Updates',
+        failed: env.MONDAY_OFFER_LABEL_FAILED || '❌ Failed',
       },
-      // Onboarding Status vocabulary (macro journey ①→⑦)
+      // Onboarding Status vocabulary (macro journey ①→⑦, one-word verbs)
       statusLabels: {
-        welcome: env.MONDAY_STATUS_WELCOME || '① 👤 Send Welcome Form',
-        awaitingInfo: env.MONDAY_STATUS_AWAITING_INFO || '② ⏳ Awaiting Candidate Info',
-        fieldsNeeded: env.MONDAY_STATUS_FIELDS_NEEDED || '③ 👤 Complete Hire Fields',
-        docsInProgress: env.MONDAY_STATUS_DOCS || '④ ⚙️ Docs In Progress',
-        outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ⚙️ Out for Signature',
+        welcome: env.MONDAY_STATUS_WELCOME || '① 👤 Send',
+        awaitingInfo: env.MONDAY_STATUS_AWAITING_INFO || '② ⏳ Waiting',
+        fieldsNeeded: env.MONDAY_STATUS_FIELDS_NEEDED || '③ 👤 Fill',
+        docsInProgress: env.MONDAY_STATUS_DOCS || '④ ⚙️ Generating',
+        outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ⚙️ Signing',
         archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
-        complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Onboarding Complete',
-        pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed — See Updates',
-        signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed — See Updates',
+        complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Done',
+        pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed',
+        signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed',
+      },
+      // ATS intake: candidates flip to the hired status on an ATS board →
+      // an Onboarding item is created and linked (mirror columns populate).
+      atsIntake: {
+        statusColumn: env.MONDAY_ATS_STATUS_COLUMN || 'color_mkzr88cj',
+        hiredLabel: env.MONDAY_ATS_HIRED_LABEL || 'Hired (Closed)',
+        boards: {
+          [env.MONDAY_RPH_ATS_BOARD_ID || '18404160361']: {
+            name: 'RPH-ATS',
+            relationColumn: 'board_relation_mm586wsc',
+            jobTitle: 'Pharmacist',
+            payClass: 'RPH',
+          },
+          [env.MONDAY_CLERK_ATS_BOARD_ID || '18395962118']: {
+            name: 'Clerk-ATS',
+            relationColumn: 'board_relation_mm586pas',
+            jobTitle: 'Pharmacy Associate',
+            payClass: 'Clerk',
+          },
+        },
       },
       // Welcome-form sync: candidate info form board -> Onboarding hire record
       // The living process guide (linked from column headers and key updates)
