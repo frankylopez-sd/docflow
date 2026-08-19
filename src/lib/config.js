@@ -97,6 +97,35 @@ function load(options = {}) {
         approved: env.MONDAY_OFFER_LABEL_APPROVED || 'Packaged Approved',
         sent: env.MONDAY_OFFER_LABEL_SENT || 'Offer Sent',
       },
+      // Welcome-form sync: candidate info form board -> Onboarding hire record
+      formSync: {
+        boardId: env.MONDAY_FORM_BOARD_ID || '18427180595',
+        // form board column ids (question ids)
+        formColumns: {
+          preferredFirst: 'short_textwyh1tbpw',
+          personalEmail: 'emailep1d7e0n',
+          mobilePhone: 'phonelt6oz6df',
+          homeAddress: 'location1ikc72st',
+          livedInState: 'single_selectpxoczsh',
+          timeZone: 'single_select8fc0rj6',
+          startDate: 'datefyy9ozp8',
+          emergencyName: 'short_textzhda3tz6',
+          emergencyPhone: 'phoner1drdnlo',
+          notes: 'long_textcup9a6kj',
+        },
+        // Onboarding board target column ids
+        targetColumns: {
+          preferredFirst: env.MONDAY_COL_FIRST_NAME || 'text_mm6570q4',
+          personalEmail: env.MONDAY_COL_PERSONAL_EMAIL || 'email_mm6cr1gj',
+          mobilePhone: env.MONDAY_COL_MOBILE_PHONE || 'phone_mm6cxwa3',
+          homeAddress: env.MONDAY_COL_HOME_ADDRESS || 'location_mm6cmyg6',
+          livedInState: env.MONDAY_COL_LIVED_IN_STATE || 'dropdown_mm669dw4',
+          timeZone: env.MONDAY_COL_TIME_ZONE || 'dropdown_mm66x62b',
+          startDate: env.MONDAY_COL_EARLIEST_START || 'date_mm6cspg8',
+          emergencyName: env.MONDAY_COL_EMERGENCY_NAME || 'text_mm6cv6se',
+          emergencyPhone: env.MONDAY_COL_EMERGENCY_PHONE || 'phone_mm6ca1xn',
+        },
+      },
       // Downstream kickoff: Background Checks board (created when onboarding completes)
       backgroundCheck: {
         boardId: env.MONDAY_BG_CHECK_BOARD_ID || '18422046606',

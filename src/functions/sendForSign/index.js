@@ -94,6 +94,10 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-offer-sent-update-failed', { itemId, error: err.message });
     });
 
+    await monday.postUpdate(itemId,
+      `✉️ Offer sent for signature (agreement ${agreementId}). Signing order: ${signers.map(s => s.name).join(' → ')}.`
+    ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
+
     logger.info('sendForSign-complete', { itemId, agreementId });
 
     context.res = {

@@ -34,8 +34,28 @@ function makeBackend() {
       ],
       written: {}, // columnId -> raw written value
     },
+    601: {
+      id: '601',
+      name: 'Jane Doe',
+      boardId: '18427180595', // welcome-form response board
+      base: [
+        { id: 'short_textwyh1tbpw', text: 'Janie', title: 'Preferred first name' },
+        { id: 'emailep1d7e0n', text: 'jane.personal@gmail.com', title: 'Personal email' },
+        { id: 'phonelt6oz6df', text: '+1 555-010-2233', title: 'Mobile phone' },
+        { id: 'single_selectpxoczsh', text: 'UT', title: 'State you live in' },
+        { id: 'single_select8fc0rj6', text: 'MST - Mountain', title: 'Time zone' },
+        { id: 'datefyy9ozp8', text: '2026-09-15', title: 'Earliest available start date' },
+        { id: 'short_textzhda3tz6', text: 'John Doe', title: 'Emergency contact name' },
+        { id: 'phoner1drdnlo', text: '+1 555-010-9988', title: 'Emergency contact phone' },
+        { id: 'long_textcup9a6kj', text: 'Excited to start!', title: 'Anything we should know?' },
+      ],
+      written: {
+        location1ikc72st: { lat: '40.76', lng: '-111.89', address: '123 Main St, Salt Lake City, UT 84101' },
+      },
+    },
   };
   const archiveItems = [];
+  const updates = []; // {itemId, body} posted via create_update
 
   function serialize(val) {
     if (val == null) return '';
@@ -65,6 +85,20 @@ function makeBackend() {
       if (!row) return { data: { data: { change_multiple_column_values: null } } };
       Object.assign(row.written, JSON.parse(vars.columnValues));
       return { data: { data: { change_multiple_column_values: { id: row.id } } } };
+    }
+
+    if (q.includes('create_update')) {
+      updates.push({ itemId: String(vars.itemId), body: vars.body });
+      return { data: { data: { create_update: { id: String(9000 + updates.length) } } } };
+    }
+
+    if (q.includes('query_params')) {
+      // findItemsByName: contains_text match on item names, scoped to the board
+      const needle = String(vars.name || '').toLowerCase();
+      const wantedBoard = String([].concat(vars.boardId)[0]);
+      const matches = Object.values(rows).filter((r) =>
+        r.boardId === wantedBoard && r.name.toLowerCase().includes(needle));
+      return { data: { data: { boards: [{ items_page: { items: matches.map((m) => ({ id: m.id, name: m.name })) } }] } } };
     }
 
     if (q.includes('create_item')) {
@@ -130,7 +164,7 @@ function makeBackend() {
     return { data: { data: { items: found } } };
   }
 
-  return { rows, archiveItems, handle, serialize };
+  return { rows, archiveItems, updates, handle, serialize };
 }
 
 /**

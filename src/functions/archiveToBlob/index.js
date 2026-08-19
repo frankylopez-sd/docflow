@@ -80,6 +80,10 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-bg-check-create-failed', { itemId, error: err.message });
     });
 
+    await monday.postUpdate(itemId,
+      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (see Signed PDF link). Background check opened and linked.`
+    ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
+
     logger.info('archiveToBlob-complete', { itemId, archiveUrl });
 
     context.res = {

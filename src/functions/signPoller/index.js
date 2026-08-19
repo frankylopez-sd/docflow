@@ -43,6 +43,14 @@ async function findPendingItems() {
 /** Core (exported for tests). @returns queue messages for completed agreements */
 async function pollPendingAgreements() {
   const cfg = config.load();
+
+  // No Sign credential configured -> nothing can be polled; stay quiet
+  // instead of erroring every 30 minutes.
+  if (!cfg.adobe.signIntegrationKey && !cfg.adobe.signRefreshToken) {
+    logger.event('sign-poller-skipped', { reason: 'no Adobe Sign credential configured' });
+    return [];
+  }
+
   const pending = await findPendingItems();
   const completed = [];
 

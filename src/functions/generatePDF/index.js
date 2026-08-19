@@ -135,6 +135,11 @@ async function processGenerate(context, queueItem) {
       logger.warn('generatePDF-offer-ready-update-failed', { itemId, error: err.message });
     });
 
+    await monday.postUpdate(itemId,
+      `📄 Offer letter generated for ${firstName} ${lastName} and ready for review — see the PDF Document link. `
+      + `To send it for signature, set Offer Letter Status to "${cfg.monday.offerLabels.approved}".`
+    ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
+
     logger.info('generatePDF-awaiting-hr-review', { itemId });
 
     context.res = {

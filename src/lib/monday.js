@@ -154,6 +154,41 @@ async function updateOfferStatus(boardId, itemId, label) {
 }
 
 /**
+ * Find items on a board whose Name matches (contains, then exact preferred).
+ * @returns {Promise<Array<{id:string,name:string}>>}
+ */
+async function findItemsByName(boardId, name) {
+  const query = `
+    query ($boardId: [ID!], $name: CompareValue!) {
+      boards (ids: $boardId) {
+        items_page (limit: 20, query_params: { rules: [{ column_id: "name", compare_value: $name, operator: contains_text }] }) {
+          items { id name }
+        }
+      }
+    }`;
+  const data = await _gql(query, { boardId: [String(boardId)], name: String(name) }, 'monday-find-by-name');
+  const items = (data.boards && data.boards[0] && data.boards[0].items_page && data.boards[0].items_page.items) || [];
+  const exact = items.filter((i) => i.name.trim().toLowerCase() === String(name).trim().toLowerCase());
+  return exact.length > 0 ? exact : items;
+}
+
+/**
+ * Post a visible update (comment) on an item — Monday notifies subscribers.
+ */
+async function postUpdate(itemId, body) {
+  const mutation = `
+    mutation ($itemId: ID!, $body: String!) {
+      create_update (item_id: $itemId, body: $body) { id }
+    }`;
+  const data = await _gql(mutation, { itemId: String(itemId), body }, 'monday-post-update');
+  if (!data.create_update || !data.create_update.id) {
+    throw new Error(`Monday postUpdate: mutation returned no id for item ${itemId}`);
+  }
+  logger.event('monday-update-posted', { itemId });
+  return data.create_update.id;
+}
+
+/**
  * Downstream kickoff: create a Background Check item for a completed hire and
  * link it back to the hire row on the Onboarding board.
  * @returns {Promise<string|null>} new background-check item id
@@ -403,6 +438,29 @@ async function updateItemColumn(boardId, itemId, columnId, value) {
 }
 
 /**
+ * Update multiple columns at once with arbitrary raw values.
+ */
+async function updateItemColumns(boardId, itemId, columnValues) {
+  if (!columnValues || Object.keys(columnValues).length === 0) return false;
+  const mutation = `
+    mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues, create_labels_if_missing: true) {
+        id
+      }
+    }`;
+  const data = await _gql(mutation, {
+    boardId: String(boardId),
+    itemId: String(itemId),
+    columnValues: JSON.stringify(columnValues),
+  }, 'monday-update-columns');
+  if (!data.change_multiple_column_values || !data.change_multiple_column_values.id) {
+    throw new Error(`Monday updateItemColumns: mutation returned no id for item ${itemId}`);
+  }
+  logger.event('monday-columns-updated', { boardId, itemId, count: Object.keys(columnValues).length });
+  return true;
+}
+
+/**
  * Queue a message to an Azure Service Bus queue (for local testing).
  */
 async function queueMessage(queueName, messageObj) {
@@ -420,6 +478,9 @@ module.exports = {
   getColumnValueJson,
   updateOfferStatus,
   createBackgroundCheck,
+  findItemsByName,
+  postUpdate,
+  updateItemColumns,
   updateStatus,
   updateItemStatus,
   updateItemColumn,
