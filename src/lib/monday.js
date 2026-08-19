@@ -217,7 +217,9 @@ function ptTimestamp() {
  * @param {string} [technical] the precise technical explanation
  */
 async function logAction(itemId, plain, technical) {
-  const body = `🕐 ${ptTimestamp()}\n${plain}` + (technical ? `\n\n🔧 Technical: ${technical}` : '');
+  // Comments stay warm and human — the technical detail goes to telemetry only.
+  if (technical) logger.event('action-technical-detail', { itemId, technical });
+  const body = `🕐 ${ptTimestamp()}\n${plain}`;
   return postUpdate(itemId, body);
 }
 

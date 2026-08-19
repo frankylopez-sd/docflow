@@ -147,12 +147,22 @@ async function handleWebhook(req, mondayRow = null) {
       };
     }
     const hireName = event.pulseName || event.itemName || '';
+    const firstName = String(hireName).trim().split(/\s+/)[0] || 'there';
     const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(hireName)}`;
     await monday.logAction(itemId,
-      `👋 Welcome packet ready. Send ${hireName || 'the candidate'} their personalized info form:\n${formLink}\n\n`
-      + `Their answers sync back onto this record automatically. Status moves to "${cfg.monday.statusLabels.awaitingInfo}" until they submit.\n\n`
-      + `📖 Full process guide (every step, who does what): ${cfg.monday.playbookUrl}`,
-      `create_item webhook received for item ${itemId}; posted prefilled form link (name query param) and set status to step ②.`
+      `👋 Welcome package is prepped and ready to send! Here's a ready-to-go email — just copy, paste, and send it to the candidate:\n\n`
+      + `— — — — — — — — — —\n`
+      + `Subject: Welcome to MedWatchers, ${firstName}! 🎉\n\n`
+      + `Hi ${firstName},\n\n`
+      + `Congratulations and welcome to the MedWatchers family! We're so excited to have you.\n\n`
+      + `To get your paperwork and first day ready, please fill out this quick 3-minute form:\n${formLink}\n\n`
+      + `A couple of things coming your way soon:\n`
+      + `  • Your official offer letter to review and sign (arrives by email)\n`
+      + `  • A background check consent request — nothing to do until it lands in your inbox\n\n`
+      + `Questions anytime — just reply to this email. See you soon!\n\n`
+      + `Warmly,\nThe MedWatchers HR Team\n`
+      + `— — — — — — — — — —\n\n`
+      + `Once they submit the form, their info fills in here on its own and this card moves forward by itself. 💜`
     ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingInfo).catch((err) => {
       logger.warn('monday-webhook-welcome-status-failed', { itemId, error: err.message });

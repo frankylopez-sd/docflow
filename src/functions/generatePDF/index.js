@@ -84,6 +84,10 @@ async function processGenerate(context, queueItem) {
       logger.warn('generatePDF-offer-status-update-failed', { itemId, error: err.message });
     });
 
+    await monday.logAction(itemId,
+      `🛠️ Building ${firstName || 'the new hire'}'s offer letter now — this usually takes about a minute. The next comment will have the review checklist.`
+    ).catch(err => logger.warn('generatePDF-start-notify-failed', { itemId, error: err.message }));
+
     // Prepare merge data for Adobe template
     const mergeData = {
       firstName,
