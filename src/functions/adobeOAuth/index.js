@@ -35,9 +35,11 @@ module.exports = async function (context, req) {
       return;
     }
 
-    // Step 1: kick off the consent flow
+    // Step 1: kick off the consent flow (consent host derives from the API
+    // shard, e.g. api.na2.adobesign.com -> secure.na2.adobesign.com)
     if (q.start) {
-      const authorize = 'https://secure.na1.adobesign.com/public/oauth/v2'
+      const secureHost = String(cfg.adobe.signApiUrl || 'https://api.na1.adobesign.com').replace('//api.', '//secure.');
+      const authorize = `${secureHost}/public/oauth/v2`
         + `?redirect_uri=${encodeURIComponent(REDIRECT_URI)}`
         + `&response_type=code&client_id=${encodeURIComponent(clientId)}`
         + `&scope=${encodeURIComponent(SCOPES)}&state=docflow`;

@@ -78,6 +78,11 @@ module.exports = async function (context, queueItem) {
     const agreementId = agreementResult.id;
     logger.info('sendForSign-agreement-created', { itemId, agreementId });
 
+    // Make sure Adobe pings us on completion (idempotent — 409 means it exists)
+    await adobe.ensureWebhook().catch(err => {
+      logger.warn('sendForSign-webhook-ensure-failed', { error: err.message, note: 'signPoller remains the fallback' });
+    });
+
     // Store agreement ID in Monday
     await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.agreementId, agreementId).catch(err => {
       logger.warn('sendForSign-agreement-id-update-failed', { itemId, error: err.message });

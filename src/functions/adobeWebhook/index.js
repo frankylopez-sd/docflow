@@ -24,8 +24,10 @@ async function handleAdobeWebhook(req) {
   const clientIdHeader =
     (req.headers && (req.headers['x-adobesign-clientid'] || req.headers['X-AdobeSign-ClientId'])) || null;
 
-  // Verification: header must be present and match our Adobe client id.
-  if (!clientIdHeader || clientIdHeader !== cfg.adobe.clientId) {
+  // Verification: header must match one of our Adobe client ids — Sign
+  // webhooks carry the SIGN app's id, not the PDF Services project's.
+  const validIds = [cfg.adobe.signClientId, cfg.adobe.clientId].filter(Boolean);
+  if (!clientIdHeader || !validIds.includes(clientIdHeader)) {
     logger.warn('adobe-webhook-rejected', { reason: 'client-id-mismatch' });
     return { status: 401, headers: {}, body: { error: 'unknown client id' }, queueMessage: null };
   }
