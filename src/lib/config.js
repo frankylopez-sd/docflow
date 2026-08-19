@@ -200,7 +200,7 @@ function load(options = {}) {
         adpDepartment: 'dropdown_mm658qx8',
         adpWorkLocation: 'dropdown_mm65fa2g',
         workerType: 'dropdown_mm65jpby',
-        supervisor: 'dropdown_mm65wk46',
+        supervisor: 'text_mm6ch89a',
         reasonForHire: 'dropdown_mm66d04',
         payType: 'dropdown_mm65v43b',
         payRate: 'numeric_mm65mx3m',
