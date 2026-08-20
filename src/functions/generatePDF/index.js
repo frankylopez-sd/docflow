@@ -198,6 +198,34 @@ async function processGenerate(context, queueItem) {
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
 
+    // Email-1 preview: show HR the EXACT welcome email that will go out on
+    // ④ Approve, right next to the PDF checklist — approve = send, no surprises.
+    try {
+      const mailer = require('../../lib/mailer');
+      const tpl = await monday.getEmailTemplate('package').catch(() => null);
+      const previewFill = {
+        firstName, lastName, fullName: `${firstName} ${lastName}`,
+        formLink: `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(`${firstName} ${lastName}`)}`,
+        signLink: '(direct signing link — inserted automatically at send time)',
+      };
+      const pvSubject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}} — everything you need is right here! 🎉', previewFill);
+      const pvBody = mailer.renderTemplate((tpl && tpl.body)
+        || `Hi {{firstName}},\n\n`
+        + `Congratulations and welcome to the MedWatchers family! Everything you need to make it official is in this one email:\n\n`
+        + `1️⃣ Sign your offer packet (offer letter + onboarding documents, one sitting, under 2 minutes):\n{{signLink}}\n\n`
+        + `2️⃣ Fill out your quick info form (3 minutes — contact info, emergency contact, start availability):\n{{formLink}}\n\n`
+        + `That's it! Once both are done we'll confirm by email and get your first day ready.\n\n`
+        + `Questions anytime — just reply here. We can't wait!\n\n`
+        + `Warmly,\nThe MedWatchers HR Team`, previewFill);
+      await monday.logAction(itemId,
+        `📧 EMAIL PREVIEW — this is exactly what ${firstName} will receive when you select "${cfg.monday.offerLabels.approved}":\n\n`
+        + `— — — — — — — — — —\nSubject: ${pvSubject}\n\n${pvBody}\n— — — — — — — — — —\n\n`
+        + `Want different wording? Edit the "package" row on the Email Templates board, then re-check ☑ Generate Docs to refresh this preview.`
+      ).catch(() => {});
+    } catch (err) {
+      logger.warn('generatePDF-email-preview-failed', { itemId, error: err.message });
+    }
+
     logger.info('generatePDF-awaiting-hr-review', { itemId });
 
     context.res = {

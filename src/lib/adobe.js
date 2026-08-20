@@ -285,6 +285,19 @@ async function createEnvelope(pdf, signers, opts = {}) {
     signatureType: 'ESIGN',
     state: 'IN_PROCESS',
     ...(opts.message ? { message: opts.message } : {}),
+    // We own ALL candidate email: our Email 1 carries the signing link, our
+    // Email 2 carries the signed copy. Adobe stays silent (industry-standard
+    // custom-branded sending). Set ADOBE_SUPPRESS_EMAILS=false to let Adobe
+    // email invites/copies again (e.g. if direct-link fetch ever breaks).
+    ...(cfg.adobe.suppressAdobeEmails ? {
+      emailOption: {
+        sendOptions: {
+          initEmails: 'NONE',
+          inFlightEmails: 'NONE',
+          completionEmails: 'NONE',
+        },
+      },
+    } : {}),
   };
 
   await _limiter().acquire();

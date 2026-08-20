@@ -79,7 +79,8 @@ describe('candidate package — direct signing link', () => {
     const pkg = backend.updates.find((u) => u.body.includes('Candidate package'));
     expect(pkg).toBeDefined();
     expect(pkg.body).toContain('ready to send');
-    expect(pkg.body).toContain(`Review and sign it here: ${ESIGN_URL}`);
+    expect(pkg.body).toContain(ESIGN_URL);
+    expect(pkg.body).toContain('Fill out your quick info form');
     expect(graphSendCalls()).toHaveLength(0);
   });
 
@@ -105,7 +106,7 @@ describe('candidate package — direct signing link', () => {
     const sends = graphSendCalls();
     expect(sends).toHaveLength(1);
     const [, payload] = sends[0];
-    expect(payload.message.body.content).toContain('watch for the email from Adobe Sign');
+    expect(payload.message.body.content).toContain('signing link pending');
     expect(payload.message.body.content).not.toContain('{{signLink}}');
   });
 });

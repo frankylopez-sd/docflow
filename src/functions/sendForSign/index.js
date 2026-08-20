@@ -144,21 +144,28 @@ module.exports = async function (context, queueItem) {
     // sends automatically, otherwise HR gets a ready-to-send draft.
     const mailer = require('../../lib/mailer');
     const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
-    const signLink = await adobe.getSigningUrl(agreementId).catch(() => null);
+    // Adobe's own emails are suppressed — OUR link is the only door, so poll
+    // harder for it and shout on the card if it ever can't be fetched.
+    const signLink = await adobe.getSigningUrl(agreementId, { attempts: 10, delayMs: 2000 }).catch(() => null);
+    if (!signLink) {
+      await monday.logAction(itemId,
+        `⚠️ Heads-up: Adobe hasn't issued the direct signing link yet and Adobe's own emails are turned off — the candidate has NO link until this is fixed. Grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it, or re-select "${cfg.monday.offerLabels.approved}" in a few minutes to retry.`
+      ).catch(() => {});
+    }
     const tpl = await monday.getEmailTemplate('package').catch(() => null);
+    const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(`${firstName} ${lastName}`)}`;
+    // EMAIL 1 of 2: welcome + info form + signing link, all in one send.
     const fill = {
-      firstName, lastName, fullName: `${firstName} ${lastName}`,
-      signLink: signLink || 'watch for the email from Adobe Sign — it arrives within a minute',
+      firstName, lastName, fullName: `${firstName} ${lastName}`, formLink,
+      signLink: signLink || '(signing link pending — HR will follow up shortly)',
     };
-    const pkgSubject = mailer.renderTemplate((tpl && tpl.subject) || 'Your MedWatchers offer is on its way, {{firstName}}! ✍️', fill);
+    const pkgSubject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}} — everything you need is right here! 🎉', fill);
     const pkgBody = mailer.renderTemplate((tpl && tpl.body)
       || `Hi {{firstName}},\n\n`
-      + `Great news — your official offer letter is ready for you!\n\n`
-      + `👉 Review and sign it here: {{signLink}}\n\n`
-      + `What happens next:\n`
-      + `  1. Sign right on your phone or computer (takes under a minute).\n`
-      + `  2. A background check consent request will follow — nothing to do until it arrives.\n`
-      + `  3. Once everything's signed, we'll email you a copy of everything plus your first-day details.\n\n`
+      + `Congratulations and welcome to the MedWatchers family! Everything you need to make it official is in this one email:\n\n`
+      + `1️⃣ Sign your offer packet (offer letter + onboarding documents, one sitting, under 2 minutes):\n{{signLink}}\n\n`
+      + `2️⃣ Fill out your quick info form (3 minutes — contact info, emergency contact, start availability):\n{{formLink}}\n\n`
+      + `That's it! Once both are done we'll confirm by email and get your first day ready.\n\n`
       + `Questions anytime — just reply here. We can't wait!\n\n`
       + `Warmly,\nThe MedWatchers HR Team`, fill);
 

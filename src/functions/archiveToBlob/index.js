@@ -147,9 +147,10 @@ async function processArchive(context, queueItem) {
           const first = cleanName.split(/\s+/)[0] || 'there';
           const tpl = await monday.getEmailTemplate('congrats').catch(() => null);
           const fill = { firstName: first, fullName: cleanName };
-          const subject = mailer.renderTemplate((tpl && tpl.subject) || `🎉 You're official, {{firstName}} — welcome to MedWatchers!`, fill);
+          // EMAIL 2 of 2: thank-you / received confirmation + the signed copy.
+          const subject = mailer.renderTemplate((tpl && tpl.subject) || `✅ Received! Your signed paperwork is in, {{firstName}}`, fill);
           const bodyText = mailer.renderTemplate((tpl && tpl.body)
-            || `Hi {{firstName}},\n\nIt's official — everything is signed! Your fully executed offer letter is attached to this email for your records. Keep it somewhere safe.\n\nComing up next:\n  • A background check consent request (watch your inbox — nothing to do until it arrives)\n  • Your first-day details from your manager\n\nWe're thrilled to have you on the team. See you soon!\n\nWarmly,\nThe MedWatchers HR Team`, fill);
+            || `Hi {{firstName}},\n\nThank you — we received everything! Your fully signed paperwork is attached to this email for your records. Keep it somewhere safe.\n\nWhere things stand:\n  ✔ Offer packet — signed and archived\n  • Background check — being ordered (nothing for you to do until you hear from the screening service)\n  • First-day details — coming from your manager soon\n\nWe're thrilled to have you on the team. See you soon!\n\nWarmly,\nThe MedWatchers HR Team`, fill);
           const result = await mailer.sendMail({
             to, subject, body: bodyText,
             attachments: [{ name: `MedWatchers-signed-offer-${dateStamp}.pdf`, content: signedPdfBuffer }],

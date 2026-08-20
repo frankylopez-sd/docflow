@@ -174,60 +174,21 @@ async function handleWebhook(req, mondayRow = null) {
         warnings: [],
       };
     }
+    // TWO-EMAIL WORKFLOW: no email goes out at intake anymore. The candidate
+    // hears from us exactly twice — Email 1 (welcome + form + signing link) on
+    // HR approval, Email 2 (received + copy) when signing completes.
     const hireName = event.pulseName || event.itemName || '';
-    const firstName = String(hireName).trim().split(/\s+/)[0] || 'there';
-    const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(hireName)}`;
-
-    // Wording is team-editable on the Email Templates board; the built-in
-    // text below is the fallback when the row is missing or unchecked.
-    const mailer = require('../../lib/mailer');
-    const tpl = await monday.getEmailTemplate('welcome').catch(() => null);
-    const fill = { firstName, fullName: String(hireName).trim(), formLink };
-    const subject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}}! 🎉', fill);
-    const emailBody = mailer.renderTemplate((tpl && tpl.body)
-      || `Hi {{firstName}},\n\n`
-      + `Congratulations and welcome to the MedWatchers family! We're so excited to have you.\n\n`
-      + `To get your paperwork and first day ready, please fill out this quick 3-minute form:\n{{formLink}}\n\n`
-      + `A couple of things coming your way soon:\n`
-      + `  • Your official offer letter to review and sign (arrives by email)\n`
-      + `  • A background check consent request — nothing to do until it lands in your inbox\n\n`
-      + `Questions anytime — just reply to this email. See you soon!\n\n`
-      + `Warmly,\nThe MedWatchers HR Team`, fill);
-
-    // Auto-send when Graph mail is armed: personal email first (ATS/form),
-    // work email fallback. Send failures fall back to the draft comment.
-    let sentTo = null;
-    if (mailer.isConfigured()) {
-      const row = await monday.readRow(boardId, itemId).catch(() => null);
-      const rawTo = row && (row.columns[cfg.monday.formSync.targetColumns.personalEmail]
-        || row.columns[cfg.monday.columns.workEmail]);
-      const to = typeof rawTo === 'string' ? rawTo : (rawTo && (rawTo.email || rawTo.text)) || null;
-      if (to && /@/.test(to)) {
-        try {
-          const result = await mailer.sendMail({ to, subject, body: emailBody });
-          if (result.sent) sentTo = to;
-        } catch (err) {
-          logger.warn('monday-webhook-welcome-email-failed', { itemId, error: err.message });
-        }
-      }
-    }
-
-    const emailBlock = `— — — — — — — — — —\nSubject: ${subject}\n\n${emailBody}\n— — — — — — — — — —`;
-    await monday.logAction(itemId, sentTo
-      ? `✉️ Welcome packet sent automatically to ${sentTo} (from ${cfg.graphMail.sender}). Copy for the record:\n\n`
-        + `${emailBlock}\n\n`
-        + `Once they submit the form, their info fills in here on its own and this card moves forward by itself. 💜`
-      : `👋 Welcome packet ready to send! Here's a ready-to-go email — just copy, paste, and send it to the candidate:\n\n`
-        + `${emailBlock}\n\n`
-        + `Once they submit the form, their info fills in here on its own and this card moves forward by itself. 💜`
+    await monday.logAction(itemId,
+      `👋 Welcome packet queued — ${hireName || 'this hire'} will get ONE welcome email with everything in it (form + signing link) the moment you approve the offer.\n\n`
+      + `YOUR MOVE: fill the employer fields on this card, then check ☑ Generate Docs. You'll get the letter AND the exact email text to review before anything is sent.`
     ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingInfo).catch((err) => {
       logger.warn('monday-webhook-welcome-status-failed', { itemId, error: err.message });
     });
-    logger.event('welcome-blast-posted', { itemId, hireName, emailed: Boolean(sentTo) });
+    logger.event('welcome-blast-posted', { itemId, hireName, emailed: false });
     return {
       status: 200,
-      body: { welcomed: true, itemId: String(itemId), emailed: Boolean(sentTo) },
+      body: { welcomed: true, itemId: String(itemId), emailed: false },
       queueMessage: null,
       warnings: [],
     };

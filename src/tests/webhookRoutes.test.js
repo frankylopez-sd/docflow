@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 describe('mondayWebhook routing', () => {
-  test('item creation posts the personalized welcome-form link, queues nothing', async () => {
+  test('item creation posts the queued-welcome note (two-email flow), queues nothing', async () => {
     const ctx = makeContext();
     await mondayWebhook(ctx, eventReq({ type: 'create_pulse', boardId: '111', pulseId: 555, pulseName: 'Jane Doe' }));
     expect(ctx.res.status).toBe(200);
@@ -45,8 +45,8 @@ describe('mondayWebhook routing', () => {
 
     const updates = backend.updates.filter((u) => u.itemId === '555');
     expect(updates).toHaveLength(1);
-    expect(updates[0].body).toContain('forms.monday.com');
-    expect(updates[0].body).toContain(encodeURIComponent('Jane Doe'));
+    expect(updates[0].body).toContain('Welcome packet queued');
+    expect(updates[0].body).toContain('Jane Doe');
 
     // The welcome route now also moves the onboarding status to step ②.
     expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.awaitingInfo });
