@@ -142,11 +142,20 @@ async function handleWebhook(req, mondayRow = null) {
     if (!inOrder && !isSystemLabel && newIdx !== -1) {
       const stepNo = newIdx + 1;
       const next = order[newIdx + 1] || 'the end';
+      // How many steps were jumped? Skipping ahead usually means a real step
+      // was missed, so say so plainly instead of just narrating.
+      const skipped = prevIdx !== -1 && newIdx > prevIdx + 1
+        ? order.slice(prevIdx + 1, newIdx)
+        : [];
+      const skipWarning = skipped.length
+        ? `\n\n⚠️ ARE YOU SURE? You jumped past ${skipped.length} step${skipped.length > 1 ? 's' : ''}: ${skipped.map((s) => `"${s}"`).join(' → ')}. `
+          + `If that was on purpose, carry on — but if you meant to work through them, set the status back to "${prevText}" and use the real controls below.`
+        : '';
       await monday.logAction(itemId,
-        `ℹ️ Status was set to "${labelText}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: dragging this column doesn't run anything.\n\n`
+        `ℹ️ Status was set to "${labelText}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: dragging this column doesn't run anything.${skipWarning}\n\n`
         + `WHAT "${labelText}" MEANS: step ${stepNo} of ${order.length} in the journey. Next after it: "${next}".\n\n`
         + `THE ORDER: ${order.join(' → ')}\n\n`
-        + `WHAT ACTUALLY DRIVES THE MACHINE: ☑ Generate Docs (builds the letter) and the "${cfg.monday.offerLabels.approved}" label (sends it). Everything else moves by itself.`
+        + `WHAT ACTUALLY DRIVES THE MACHINE: fill the hire fields (the letter builds itself) · "${cfg.monday.offerLabels.approved}" builds the packet · "${cfg.monday.offerLabels.sendPackage}" sends it. Everything else moves by itself.`
       ).catch(() => {});
     }
     logger.debug('monday-webhook-status-narrated', { itemId, labelText, prevText, inOrder });
@@ -328,10 +337,14 @@ async function handleWebhook(req, mondayRow = null) {
     // stay silent. Only narrate FORWARD skips (a human dragging ahead).
     const oInOrder = oIdx !== -1 && (oPrevIdx === -1 || oIdx <= oPrevIdx + 1);
     if (!oInOrder && oIdx !== -1) {
+      const oSkipped = oPrevIdx !== -1 && oIdx > oPrevIdx + 1 ? oOrder.slice(oPrevIdx + 1, oIdx) : [];
+      const oSkipWarning = oSkipped.length
+        ? `\n\n⚠️ ARE YOU SURE? You jumped past ${oSkipped.length} step${oSkipped.length > 1 ? 's' : ''}: ${oSkipped.map((s) => `"${s}"`).join(' → ')}. Nothing ran. Set it back to "${prevText}" if you meant to work through them.`
+        : '';
       await monday.logAction(itemId,
-        `ℹ️ The package status was set to "${label}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: this label is automation-owned, selecting it by hand doesn't ${label.includes('Signing') ? 'send anything for signature' : 'run anything'}.\n\n`
-        + `THE OFFER ORDER: ${oOrder.join(' → ')}\n\n`
-        + `THE TWO CONTROLS: ☑ Generate Docs builds the letter · "${cfg.monday.offerLabels.approved}" sends it (only works once a letter exists). Everything else moves by itself.`
+        `ℹ️ The package status was set to "${label}"${prevText ? ` (was "${prevText}")` : ''} — heads-up: this label is automation-owned, selecting it by hand doesn't ${label.includes('Signing') ? 'send anything for signature' : 'run anything'}.${oSkipWarning}\n\n`
+        + `THE PACKET ORDER: ${oOrder.join(' → ')}\n\n`
+        + `THE TWO BUTTONS: "${cfg.monday.offerLabels.approved}" builds the packet · "${cfg.monday.offerLabels.sendPackage}" emails it to the candidate. Everything else moves by itself.`
       ).catch(() => {});
     }
     logger.debug('monday-webhook-offer-status-ignored', { itemId, label, narrated: !oInOrder });

@@ -52,6 +52,15 @@ async function handleAtsSync(req) {
     return { status: 200, body: { ignored: true, reason: `status is not "${ats.hiredLabel}"` } };
   }
 
+  /** Pull a usable email string out of an ATS row's email column. */
+  const atsRowEmail = (row, colId) => {
+    if (!colId) return null;
+    const v = row.columns[colId];
+    if (!v) return null;
+    if (typeof v === 'string') return v;
+    return v.email || v.text || null;
+  };
+
   // Read the candidate from the ATS board
   const atsRow = await monday.readRow(atsBoardId, atsItemId);
   const candidateName = String(atsRow.name || '').trim();
@@ -70,7 +79,31 @@ async function handleAtsSync(req) {
   }
 
   let onboardingItemId;
-  const exact = matches.find((m) => m.name.trim().toLowerCase() === candidateName.toLowerCase());
+  // NAMESAKE PROTECTION: a name is not an identity. Two real people share
+  // "John Smith" often enough that linking by name alone would overwrite the
+  // first John's pay, title and contact details with the second John's.
+  // Identity = email; the name only narrows the search.
+  const sameName = matches.filter((m) => m.name.trim().toLowerCase() === candidateName.toLowerCase());
+  const atsEmailRaw = (boardCfg.copy && atsRowEmail(atsRow, boardCfg.copy.email)) || null;
+  const atsEmail = atsEmailRaw ? String(atsEmailRaw).trim().toLowerCase() : null;
+  let exact = null;
+  let namesakeWarning = null;
+
+  for (const m of sameName) {
+    const existingEmail = await monday.getColumnValueJson(
+      cfg.monday.onboardingBoardId, m.id, cfg.monday.formSync.targetColumns.personalEmail
+    ).catch(() => null);
+    const existing = existingEmail && String(existingEmail.email || existingEmail.text || '').trim().toLowerCase();
+    if (atsEmail && existing && existing === atsEmail) { exact = m; break; }   // same person
+    if (atsEmail && existing && existing !== atsEmail) continue;               // different person
+    if (!atsEmail || !existing) exact = exact || m;                            // can't tell — reuse, but warn
+  }
+  if (sameName.length > 0 && !exact) {
+    namesakeWarning = `⚠️ HEADS UP — another hire on this board is also named "${candidateName}", but with a different email address. This is a SEPARATE new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\nBefore you go further: confirm you're working on the right card. Both cards will look identical in lists — tell them apart by Personal Email.`;
+  } else if (exact && sameName.length > 1) {
+    // Several cards carry this name — say which one we touched and why.
+    namesakeWarning = `⚠️ HEADS UP — ${sameName.length} cards on this board are named "${candidateName}". This ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\nDouble-check you're on the right card before approving anything — in lists they look identical; Personal Email is what tells them apart.`;
+  }
 
   const roleColumns = {
     [boardCfg.relationColumn]: { item_ids: [Number(atsItemId)] },
@@ -121,6 +154,12 @@ async function handleAtsSync(req) {
     + `Role preset: ${boardCfg.jobTitle} (${boardCfg.payClass}).`,
     `ATS item ${atsItemId} (board ${atsBoardId}) linked via ${boardCfg.relationColumn}; job title + pay class preset from the source board.`
   ).catch((err) => logger.warn('atsSync-onboarding-log-failed', { onboardingItemId, error: err.message }));
+
+  if (namesakeWarning) {
+    logger.event('atsSync-namesake-warning', { onboardingItemId, candidateName, atsEmail });
+    await monday.logAction(onboardingItemId, namesakeWarning)
+      .catch((err) => logger.warn('atsSync-namesake-log-failed', { onboardingItemId, error: err.message }));
+  }
 
   await monday.logAction(atsItemId,
     `🚀 Onboarding started for ${candidateName} — their Onboarding record was created and linked automatically. The welcome packet is being prepared there.`,

@@ -168,6 +168,28 @@ describe('atsSync', () => {
     expect(backend.updates.filter((u) => u.itemId === '701')).toHaveLength(1);
   });
 
+  test('namesake with a DIFFERENT email gets its own card, not the other person\'s', async () => {
+    const cfg = config.load();
+    // An existing hire shares the name but belongs to someone else entirely.
+    backend.rows[555].name = 'Rita Pharmacist';
+    backend.rows[555].written[cfg.monday.formSync.targetColumns.personalEmail] = {
+      email: 'a.different.rita@gmail.com', text: 'a.different.rita@gmail.com',
+    };
+    // The ATS candidate's own email (column id 'email' on the live ATS boards)
+    backend.rows[701].written.email = { email: 'rita.pharmacist@gmail.com', text: 'rita.pharmacist@gmail.com' };
+
+    const ctx = makeContext();
+    await atsSync(ctx, hiredEvent()); // ATS Rita's email is rita.pharmacist@gmail.com
+
+    // A NEW card was created — the other Rita's record was left alone.
+    expect(ctx.res.body.onboardingItemId).not.toBe('555');
+    expect(backend.rows[555].written[cfg.monday.columns.jobTitle]).toBeUndefined();
+    // And the new card carries a loud warning about the name collision.
+    const warned = backend.updates.find((u) => u.body.includes('also named'));
+    expect(warned).toBeDefined();
+    expect(warned.body).toContain('Personal Email');
+  });
+
   test('replayed hired event is deduped via the relation column (linkedPulseIds)', async () => {
     const boardCfg = config.load().monday.atsIntake.boards[RPH_BOARD];
     backend.rows[555].name = 'Rita Pharmacist';
