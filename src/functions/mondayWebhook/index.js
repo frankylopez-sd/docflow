@@ -13,6 +13,12 @@
  * - 429: Queue rate limiting (intentional back-off)
  */
 
+/** First name for warm, short copy ("nothing reaches Rita until you send it"). */
+function firstNameOf(fullName) {
+  const first = String(fullName || '').trim().split(/\s+/)[0];
+  return first || 'the candidate';
+}
+
 const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
@@ -188,8 +194,13 @@ async function handleWebhook(req, mondayRow = null) {
     // HR approval, Email 2 (received + copy) when signing completes.
     const hireName = event.pulseName || event.itemName || '';
     await monday.logAction(itemId,
-      `👋 Welcome packet queued — ${hireName || 'this hire'} will get ONE welcome email with everything in it (form + signing link) the moment you approve the offer.\n\n`
-      + `YOUR MOVE: just fill the employer fields on this card — the letter builds itself the moment they're complete, and you'll get the letter AND the exact email text to review before anything is sent. (☑ Generate Docs still works as a manual rebuild.)`
+      `👋 ${hireName || 'This hire'} is on the board. Two things to do.\n\n`
+      + `1 · Fill these fields:\n`
+      + `    Preferred First Name · Preferred Last Name · Work Email\n`
+      + `    ADP Job Title · ADP Department · Supervisor\n`
+      + `    Pay Rate · Pay Frequency · Start Date\n\n`
+      + `2 · Confirmed the details are right and this candidate is approved for the role? Check ☑ Details Verified.\n\n`
+      + `The offer letter builds in about a minute. You'll get it here with the exact email — nothing reaches ${firstNameOf(hireName)} until you send it.`
     ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingInfo).catch((err) => {
       logger.warn('monday-webhook-welcome-status-failed', { itemId, error: err.message });
@@ -222,8 +233,8 @@ async function handleWebhook(req, mondayRow = null) {
       }
       await monday.logAction(itemId,
         denied
-          ? `🛑 Offer marked Denied — the generated letter will not be sent. Re-generate with "Generate Docs" after changes if needed.`
-          : `✋ Offer needs more info before sending. Update the hire fields, then re-check "Generate Docs" to regenerate the letter.`,
+          ? `🛑 Offer marked Denied — the generated letter will not be sent. Re-generate with "Details Verified" after changes if needed.`
+          : `✋ Offer needs more info before sending. Update the hire fields, then re-check "Details Verified" to regenerate the letter.`,
         `Offer Letter Status set to "${label}" by a person; automation stopped this offer's routing.`
       ).catch((err) => logger.warn('monday-webhook-denial-post-failed', { itemId, error: err.message }));
       return {
@@ -243,7 +254,7 @@ async function handleWebhook(req, mondayRow = null) {
         await monday.logAction(itemId,
           `⚠️ Not re-sending — this hire's paperwork is already complete (status "${doneStatus}", signed offer archived).\n\n`
           + `Approving again would email the candidate a SECOND signing packet for a letter they already signed.\n\n`
-          + `If you truly need to redo the offer: move Onboarding Status off "${cfg.monday.statusLabels.complete}" first, then ☑ Generate Docs → review → "${cfg.monday.offerLabels.approved}". I've set the package status back to "${cfg.monday.offerLabels.signed}".`
+          + `If you truly need to redo the offer: move Onboarding Status off "${cfg.monday.statusLabels.complete}" first, then ☑ Details Verified → review → "${cfg.monday.offerLabels.approved}". I've set the package status back to "${cfg.monday.offerLabels.signed}".`
         ).catch(() => {});
         await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.signed).catch(() => {});
         return {
@@ -260,8 +271,8 @@ async function handleWebhook(req, mondayRow = null) {
         await monday.logAction(itemId,
           `⚠️ Can't send for signature yet — there's no offer letter on this card.\n\n`
           + `WHY (exact): the "PDF Document" column (${cfg.monday.columns.pdfUrl}) is empty — "${cfg.monday.offerLabels.approved}" was selected before the letter was generated.\n\n`
-          + `THE ORDER: 1️⃣ fill the hire fields → 2️⃣ check ☑ Generate Docs → 3️⃣ review the PDF ("${cfg.monday.offerLabels.ready}") → 4️⃣ then select "${cfg.monday.offerLabels.approved}".\n\n`
-          + `I've reset the offer status — start at ☑ Generate Docs.`
+          + `THE ORDER: 1️⃣ fill the hire fields → 2️⃣ check ☑ Details Verified → 3️⃣ review the PDF ("${cfg.monday.offerLabels.ready}") → 4️⃣ then select "${cfg.monday.offerLabels.approved}".\n\n`
+          + `I've reset the offer status — start at ☑ Details Verified.`
         ).catch(() => {});
         await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.notStarted).catch(() => {});
         return {
@@ -273,8 +284,8 @@ async function handleWebhook(req, mondayRow = null) {
       }
       logger.event('offer-approved-queueing-prep', { itemId, boardId, label });
       await monday.logAction(itemId,
-        `✅ Approved — building the signing packet now (offer letter + every Active packet document). NOTHING is sent yet.\n\n`
-        + `In about a minute you'll see the exact email the candidate would receive, with their real signing link in it. Read it, then select "${cfg.monday.offerLabels.sendPackage}" to actually send it.`,
+        `✅ Approved. Building the signing packet — about a minute. Nothing is sent yet.\n\n`
+        + `Next: the exact email appears here with the real signing link. Read it, then select "${cfg.monday.offerLabels.sendPackage}" to send.`,
         `Offer Letter Status set to "${label}" by a person; a PREP job was queued to docflow-sign (mode=prep, no candidate email).`
       ).catch((err) => logger.warn('monday-webhook-approval-post-failed', { itemId, error: err.message }));
       return {
@@ -312,7 +323,7 @@ async function handleWebhook(req, mondayRow = null) {
       }
       logger.event('offer-send-package-queued', { itemId, boardId, agreementOnFile });
       await monday.logAction(itemId,
-        `📤 Sending now — ${cfg.monday.offerLabels.sendPackage} received. The candidate's welcome email is going out with their signing link and info form. This item updates itself from here.`,
+        `📤 Sending now. The welcome email is going out with the signing link and info form.`,
         `Offer Letter Status set to "${label}" by a person; a SEND job was queued to docflow-sign (mode=send, agreement ${agreementOnFile}).`
       ).catch((err) => logger.warn('monday-webhook-send-post-failed', { itemId, error: err.message }));
       return {
@@ -365,7 +376,7 @@ async function handleWebhook(req, mondayRow = null) {
   if (!isColumnEvent || !isTriggerColumn || !checked) {
     // AUTO-GENERATE: the letter builds itself the moment the last required
     // hire field is filled, and REBUILDS on any later field edit — so a stale
-    // PDF can never be approved. ☑ Generate Docs remains a manual rebuild.
+    // PDF can never be approved. ☑ Details Verified remains a manual rebuild.
     const hf = cfg.monday.columns;
     const hireFieldCols = [hf.firstName, hf.lastName, hf.workEmail, hf.adpJobTitle, hf.adpDepartment,
       hf.supervisor, hf.payRate, hf.payFrequency, hf.payClass, hf.flsaStatus, hf.workerType, hf.startDate,
@@ -407,8 +418,8 @@ async function handleWebhook(req, mondayRow = null) {
       });
       logger.event('auto-generate-queued', { itemId, columnId: event.columnId, rebuild: isRebuild });
       await monday.logAction(itemId, isRebuild
-        ? `🔁 A hire field changed — rebuilding the offer letter automatically so the draft always matches this card. Fresh checklist + email preview coming in about a minute.`
-        : `🛠️ All required fields are filled — building the offer letter automatically. Review checklist + email preview land here in about a minute. (☑ Generate Docs still works as a manual rebuild.)`
+        ? `🔁 A field changed. Rebuilding the letter now so it matches this card — about a minute.`
+        : `🛠️ All fields are in. Building the offer letter — about a minute.`
       ).catch(() => {});
       return {
         status: 200,
@@ -448,8 +459,8 @@ async function handleWebhook(req, mondayRow = null) {
   if (guardStatus === cfg.monday.statusLabels.complete || guardStatus === cfg.monday.statusLabels.archiving) {
     await monday.logAction(itemId,
       `⚠️ Not rebuilding — this hire's paperwork is already complete (status "${guardStatus}", signed offer archived).\n\n`
-      + `Re-checking ☑ Generate Docs on a finished hire would restart the whole pipeline and send the candidate a second offer.\n\n`
-      + `If you truly need to redo it: move Onboarding Status off "${cfg.monday.statusLabels.complete}" first, then ☑ Generate Docs again.`
+      + `Re-checking ☑ Details Verified on a finished hire would restart the whole pipeline and send the candidate a second offer.\n\n`
+      + `If you truly need to redo it: move Onboarding Status off "${cfg.monday.statusLabels.complete}" first, then ☑ Details Verified again.`
     ).catch(() => {});
     return {
       status: 200,
@@ -475,7 +486,7 @@ async function handleWebhook(req, mondayRow = null) {
 
   // Instant acknowledgment — the human sees a reaction the second they click
   await monday.logAction(itemId,
-    `🚀 Got it — ☑ Generate Docs received. Building the offer letter now; the review checklist lands here in about a minute.`
+    `✅ Confirmed. Building the offer letter — about a minute.`
   ).catch(() => {});
 
   // Build queue message for async PDF generation

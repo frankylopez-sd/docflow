@@ -129,7 +129,7 @@ describe('completion — congrats email with the signed copy attached', () => {
     expect(payload.message.attachments[0].name).toMatch(/^MedWatchers-signed-offer-.*\.pdf$/);
     expect(payload.message.attachments[0].contentBytes).toBe(SIGNED_BYTES.toString('base64'));
 
-    const receipt = backend.updates.find((u) => u.body.includes('Congrats email sent'));
+    const receipt = backend.updates.find((u) => u.body.includes('Confirmation sent'));
     expect(receipt).toBeDefined();
   });
 
@@ -138,7 +138,7 @@ describe('completion — congrats email with the signed copy attached', () => {
       agreementId: 'AGR-42', boardId: '111', itemId: '555', firstName: 'Jane', lastName: 'Doe',
     });
     expect(graphSendCalls()).toHaveLength(0);
-    const done = backend.updates.find((u) => u.body.includes('Onboarding paperwork complete'));
+    const done = backend.updates.find((u) => u.body.includes('Signed and filed'));
     expect(done).toBeDefined();
   });
 });

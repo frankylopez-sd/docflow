@@ -145,7 +145,7 @@ async function handleFormSync(req) {
   const notes = get(fc.notes);
   await monday.logAction(hireId,
     `📥 Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record. `
-    + `YOUR MOVE: fill the remaining ADP fields, then check "Generate Docs".`
+    + `YOUR MOVE: fill the remaining ADP fields, then check "Details Verified".`
     + (notes ? `\n\nCandidate notes: ${notes}` : ''),
     `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to step ③.`
   ).catch((err) => logger.warn('formSync-update-post-failed', { hireId, error: err.message }));

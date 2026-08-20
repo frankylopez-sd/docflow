@@ -97,9 +97,9 @@ async function processGenerate(context, queueItem) {
       await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.missingFields).catch(() => {});
       await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.moreInfo).catch(() => {});
       await monday.logAction(itemId,
-        `✋ Can't build the offer letter yet — ${missingFields.length === 1 ? 'one field is' : missingFields.length + ' fields are'} still empty:\n`
-        + missingFields.map((f) => `  • ${f}`).join('\n')
-        + `\n\nFill ${missingFields.length === 1 ? 'it' : 'them'} in on this card, then check ☑ Generate Docs again and the letter will build right away.`
+        `✋ ${missingFields.length === 1 ? 'One field is' : `${missingFields.length} fields are`} still empty:\n`
+        + missingFields.map((f) => `    ${f}`).join('\n')
+        + `\n\nFill ${missingFields.length === 1 ? 'it' : 'them'} in, then check ☑ Details Verified. The letter builds right away.`
       ).catch(() => {});
       context.res = { status: 200, body: { itemId, generated: false, missingFields } };
       return; // no throw — retries can't fill in fields, a person can
@@ -114,7 +114,7 @@ async function processGenerate(context, queueItem) {
     });
 
     await monday.logAction(itemId,
-      `🛠️ Building ${firstName || 'the new hire'}'s offer letter now — this usually takes about a minute. The next comment will have the review checklist.`
+      `🛠️ Writing ${firstName || 'the'}'s offer letter — about a minute.`
     ).catch(err => logger.warn('generatePDF-start-notify-failed', { itemId, error: err.message }));
 
     // Prepare merge data for Adobe template
@@ -214,15 +214,15 @@ async function processGenerate(context, queueItem) {
     });
 
     await monday.logAction(itemId,
-      `📄 Offer letter generated for ${firstName} ${lastName} — YOUR MOVE. Open the PDF Document link and review:\n`
-      + `  ☐ Name spelled correctly (${firstName} ${lastName})\n`
-      + `  ☐ Position & department right (${adpJobTitle} / ${adpDepartment})\n`
-      + `  ☐ Compensation & frequency right (${payRate} ${payFrequency})\n`
-      + `  ☐ Start date right (${startDate})\n`
-      + `  ☐ Supervisor right (${supervisor})\n\n`
-      + `📍 Where it lives: ${attached.attached ? 'the PDF is attached to this card (click the 📄 Offer Letter column to preview it right here)' : 'the draft is in Azure storage (24h link)'} · the template came from the team-editable Template Catalog · once signed, the final archives to new-hires/${lastName}-${firstName}.\n\n`
-      + `Looks good → select "${cfg.monday.offerLabels.approved}" — ONE click sends everything in one go: the signing packet (this letter + every Active packet document on the Template Catalog) goes to Adobe, and the candidate's package email goes out with the direct signing link inside.\n`
-      + `Something off → fix the field, re-check "Generate Docs" to regenerate. Or "${cfg.monday.offerLabels.denied}" / "${cfg.monday.offerLabels.moreInfo}" to stop.`,
+      `📄 The offer letter is ready. ${attached.attached ? 'It\'s attached to this card — open the 📄 Offer Letter column to read it.' : 'Open the PDF Document link to read it.'}\n\n`
+      + `Check these five:\n`
+      + `    Name — ${firstName} ${lastName}\n`
+      + `    Role — ${adpJobTitle}, ${adpDepartment}\n`
+      + `    Pay — ${payRate} ${payFrequency}\n`
+      + `    Start — ${startDate}\n`
+      + `    Supervisor — ${supervisor}\n\n`
+      + `All correct → select "${cfg.monday.offerLabels.approved}". That builds the signing packet and shows you the exact email. Nothing sends yet.\n`
+      + `Something off → fix the field; the letter rebuilds itself. Or "${cfg.monday.offerLabels.denied}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
 
@@ -246,9 +246,9 @@ async function processGenerate(context, queueItem) {
         + `Questions anytime — just reply here. We can't wait!\n\n`
         + `Warmly,\nThe MedWatchers HR Team`, previewFill);
       await monday.logAction(itemId,
-        `📧 EMAIL PREVIEW — this is exactly what ${firstName} will receive when you select "${cfg.monday.offerLabels.approved}":\n\n`
+        `📧 ${firstName} will receive this. Preview only — not sent.\n\n`
         + `— — — — — — — — — —\nSubject: ${pvSubject}\n\n${pvBody}\n— — — — — — — — — —\n\n`
-        + `Want different wording? Edit the "package" row on the Email Templates board, then re-check ☑ Generate Docs to refresh this preview.`
+        + `To change the wording: edit the "package" row on the Email Templates board.`
       ).catch(() => {});
     } catch (err) {
       logger.warn('generatePDF-email-preview-failed', { itemId, error: err.message });
@@ -281,7 +281,7 @@ async function processGenerate(context, queueItem) {
         `❌ Offer letter generation failed.\n\n`
         + `SYSTEM: ${system}\n`
         + `EXACT ERROR: ${error.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
-        + `FIX: address the cause above, then re-check ☑ Generate Docs. (The system also retries automatically.)`
+        + `FIX: address the cause above, then re-check ☑ Details Verified. (The system also retries automatically.)`
       ).catch(() => {});
     }
 

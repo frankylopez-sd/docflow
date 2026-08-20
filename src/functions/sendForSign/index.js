@@ -184,8 +184,9 @@ module.exports = async function (context, queueItem) {
       ? `\n\n📑 In the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
       : '';
     await monday.logAction(itemId,
-      `📦 Packet built and ready — nothing has been sent yet. Signing order: ${signers.map(s => s.name).join(' → ')}.${packetLine}\n\n`
-      + `YOUR MOVE: read the exact email in the next comment. Looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes out to ${firstName} immediately. Something off → "${cfg.monday.offerLabels.moreInfo}", fix the fields, and the letter rebuilds itself.`,
+      `📦 The packet is built. Signing order: ${signers.map(s => s.name).join(' → ')}.${packetLine}\n\n`
+      + `Read the email below. Looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes to ${firstName}.\n`
+      + `Something off → "${cfg.monday.offerLabels.moreInfo}"; fix the field and the letter rebuilds itself.`,
       `Adobe Sign agreement ${agreementId} created with ${signers.length} signer(s) and ${1 + packetDocs.length} document(s); no candidate email sent (awaiting the ⑤ Send Package gate).`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
@@ -230,7 +231,7 @@ module.exports = async function (context, queueItem) {
         : /auth not configured|refresh|token|401/i.test(String(error.message) + httpCode) ? 'Adobe Sign (authentication)'
         : httpCode ? 'Adobe Sign API' : 'Azure engine (sendForSign)';
       const fix = /no PDF link/i.test(error.message)
-        ? `Generate the letter first: fill the hire fields → check ☑ Generate Docs → review → then "${failCfg.monday.offerLabels.approved}".`
+        ? `Generate the letter first: fill the hire fields → check ☑ Details Verified → review → then "${failCfg.monday.offerLabels.approved}".`
         : `Fix the cause below, then re-select "${failCfg.monday.offerLabels.approved}" to re-send.`;
       await monday.logAction(queueItem.itemId,
         `❌ Sending for signature failed.\n\n`

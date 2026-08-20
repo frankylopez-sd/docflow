@@ -112,8 +112,8 @@ describe('signing packet', () => {
     expect(agreementBody.fileInfos).toHaveLength(3);
     expect(agreementBody.name).toBe('Hire Packet - Jane Doe');
 
-    const outComment = backend.updates.find((u) => u.body.includes('Packet built'));
-    expect(outComment.body).toContain('nothing has been sent yet');
+    const outComment = backend.updates.find((u) => u.body.includes('The packet is built'));
+    expect(outComment.body).toContain('Signing order');
     expect(outComment.body).toContain('1. Offer Letter (custom for Jane)');
     expect(outComment.body).toContain('2. Background Check Consent');
     expect(outComment.body).toContain('3. Policies & Procedures');
@@ -127,8 +127,8 @@ describe('signing packet', () => {
     expect(agreementBody.fileInfos).toHaveLength(1);
     expect(agreementBody.name).toBe('Offer Letter - Jane Doe');
 
-    const outComment = backend.updates.find((u) => u.body.includes('Packet built'));
-    expect(outComment.body).toContain('nothing has been sent yet');
+    const outComment = backend.updates.find((u) => u.body.includes('The packet is built'));
+    expect(outComment.body).toContain('Signing order');
     expect(outComment.body).not.toContain('In the packet');
   });
 });

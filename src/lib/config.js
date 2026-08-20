@@ -119,12 +119,12 @@ function load(options = {}) {
       // imperative = a person acts, -ing = automation in progress)
       offerLabels: {
         notStarted: env.MONDAY_OFFER_LABEL_NOT_STARTED || '① Idle',
-        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating Letter',
+        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Writing Letter',
         ready: env.MONDAY_OFFER_LABEL_READY || '③ 👤 Review',
         // TWO human gates (④ approved, ⑦ sendPackage) with the machine's own
         // work visible in between, so the board is never a black box.
         approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Package Approved',
-        creatingPackage: env.MONDAY_OFFER_LABEL_CREATING || '⑤ ⚙️ Creating Package',
+        creatingPackage: env.MONDAY_OFFER_LABEL_CREATING || '⑤ ⚙️ Preparing Signature',
         readyToSend: env.MONDAY_OFFER_LABEL_READY_TO_SEND || '⑥ 👀 Ready to Send',
         sendPackage: env.MONDAY_OFFER_LABEL_SEND_PACKAGE || '⑦ 📤 Send Package',
         sendingEmail: env.MONDAY_OFFER_LABEL_SENDING || '⑧ ⚙️ Sending Email',

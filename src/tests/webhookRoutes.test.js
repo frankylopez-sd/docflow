@@ -45,7 +45,7 @@ describe('mondayWebhook routing', () => {
 
     const updates = backend.updates.filter((u) => u.itemId === '555');
     expect(updates).toHaveLength(1);
-    expect(updates[0].body).toContain('Welcome packet queued');
+    expect(updates[0].body).toContain('is on the board');
     expect(updates[0].body).toContain('Jane Doe');
 
     // The welcome route now also moves the onboarding status to step ②.
@@ -62,7 +62,7 @@ describe('mondayWebhook routing', () => {
     expect(res.body.auto).toBe(true);
     expect(res.queueMessage).toMatchObject({ boardId: '111', itemId: '555', eventType: 'auto-field-complete' });
     const updates = backend.updates.filter((u) => u.itemId === '555');
-    expect(updates[updates.length - 1].body).toMatch(/automatically/);
+    expect(updates[updates.length - 1].body).toMatch(/Building the offer letter|Rebuilding the letter/);
   });
 
   test('auto-generate: field edit while out for signature narrates and queues nothing', async () => {

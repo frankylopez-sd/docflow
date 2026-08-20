@@ -2,7 +2,7 @@ const axios = require('axios');
 
 module.exports = async function (context, req) {
   try {
-    // Input: Monday hire data from webhook or triggered by "Generate Docs" completion
+    // Input: Monday hire data from webhook or triggered by "Details Verified" completion
     const {
       firstName,
       lastName,

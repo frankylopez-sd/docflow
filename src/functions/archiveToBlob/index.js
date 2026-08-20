@@ -135,7 +135,7 @@ async function processArchive(context, queueItem) {
     }
 
     await monday.logAction(itemId,
-      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (agreement ${agreementId} — see Signed PDF link). Background check opened and linked.${adpLine}`,
+      `✅ Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}`,
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
@@ -164,7 +164,7 @@ async function processArchive(context, queueItem) {
           });
           if (result.sent) {
             await monday.logAction(itemId,
-              `🎉 Congrats email sent to ${to} with the signed offer letter attached — the candidate has their copy.`
+              `🎉 Confirmation sent to ${to} with their signed copy attached.`
             ).catch(() => {});
           }
         }
