@@ -42,6 +42,8 @@ describe('uploadToSharePoint', () => {
     });
 
     monday.updateStatus.mockResolvedValue({ success: true });
+    monday.updateItemColumn.mockResolvedValue(true);
+    monday.logAction.mockResolvedValue(true);
 
     // Default SharePoint methods
     sharepoint.uploadPDF.mockResolvedValue({
@@ -80,7 +82,10 @@ describe('uploadToSharePoint', () => {
         }),
         { retries: 2 }
       );
-      expect(monday.updateStatus).toHaveBeenCalled();
+      expect(monday.updateItemColumn).toHaveBeenCalledWith(
+        'board-123', 'item-123', 'link_sharepoint',
+        expect.objectContaining({ url: expect.stringContaining('sharepoint.com') })
+      );
       expect(result).toMatchObject({
         itemId: 'item-123',
         agreementId: 'agreement-uuid',
@@ -148,7 +153,7 @@ describe('uploadToSharePoint', () => {
 
     test('continues if Monday sharePointLink update fails (non-blocking)', async () => {
       const sharePointErr = new Error('Monday update failed');
-      monday.updateStatus.mockRejectedValueOnce(sharePointErr);
+      monday.updateItemColumn.mockRejectedValueOnce(sharePointErr);
 
       const msg = {
         agreementId: 'agreement-uuid',
@@ -164,30 +169,7 @@ describe('uploadToSharePoint', () => {
       );
     });
 
-    test('continues if Monday status update fails (non-blocking)', async () => {
-      const statusErr = new Error('Status update failed');
-      let callCount = 0;
-      monday.updateStatus.mockImplementation(() => {
-        callCount++;
-        if (callCount === 2) throw statusErr; // Second call fails
-        return Promise.resolve({ success: true });
-      });
-
-      const msg = {
-        agreementId: 'agreement-uuid',
-        itemId: 'item-123',
-      };
-
-      const result = await processSharePointUpload(msg);
-
-      expect(result.spItemId).toBe('sp-file-123'); // Still succeeds
-      expect(logger.warn).toHaveBeenCalledWith(
-        'sharepoint-status-update-failed',
-        expect.any(Object)
-      );
-    });
-
-    test('sets Monday status to "Shared to SharePoint" on success', async () => {
+    test('posts the SharePoint link as a card comment on success', async () => {
       const msg = {
         agreementId: 'agreement-uuid',
         itemId: 'item-123',
@@ -195,12 +177,21 @@ describe('uploadToSharePoint', () => {
 
       await processSharePointUpload(msg);
 
-      expect(monday.updateStatus).toHaveBeenCalledWith(
-        'board-123',
+      expect(monday.logAction).toHaveBeenCalledWith(
         'item-123',
-        expect.objectContaining({ status: 'Shared to SharePoint' }),
-        expect.any(Object)
+        expect.stringContaining('copied to SharePoint')
       );
+    });
+
+    test('NEVER writes the status column (⑦ Done must not be clobbered)', async () => {
+      const msg = {
+        agreementId: 'agreement-uuid',
+        itemId: 'item-123',
+      };
+
+      await processSharePointUpload(msg);
+
+      expect(monday.updateStatus).not.toHaveBeenCalled();
     });
 
     test('throws on PDF download failure', async () => {
@@ -216,13 +207,12 @@ describe('uploadToSharePoint', () => {
         'Adobe API down'
       );
 
-      // Attempt to mark Monday as failed
-      expect(monday.updateStatus).toHaveBeenCalledWith(
-        'board-123',
+      // Failure is explained on the card as a comment — never a status write
+      expect(monday.logAction).toHaveBeenCalledWith(
         'item-123',
-        expect.objectContaining({ status: 'SharePoint Upload Error' }),
-        expect.any(Object)
+        expect.stringContaining('SharePoint copy failed')
       );
+      expect(monday.updateStatus).not.toHaveBeenCalled();
     });
 
     test('throws on SharePoint upload failure', async () => {
@@ -238,13 +228,12 @@ describe('uploadToSharePoint', () => {
         'SharePoint unavailable'
       );
 
-      // Attempt to mark Monday as failed
-      expect(monday.updateStatus).toHaveBeenCalledWith(
-        'board-123',
+      // Failure is explained on the card as a comment — never a status write
+      expect(monday.logAction).toHaveBeenCalledWith(
         'item-123',
-        expect.objectContaining({ status: 'SharePoint Upload Error' }),
-        expect.any(Object)
+        expect.stringContaining('SharePoint copy failed')
       );
+      expect(monday.updateStatus).not.toHaveBeenCalled();
     });
 
     test('throws if agreementId not found in Monday', async () => {
@@ -264,7 +253,7 @@ describe('uploadToSharePoint', () => {
       sharepoint.uploadPDF.mockRejectedValueOnce(spErr);
 
       const statusErr = new Error('Monday also failed');
-      monday.updateStatus.mockRejectedValueOnce(statusErr);
+      monday.logAction.mockRejectedValueOnce(statusErr);
 
       const msg = {
         agreementId: 'agreement-uuid',
@@ -277,7 +266,7 @@ describe('uploadToSharePoint', () => {
 
       // Should log the Monday failure but not double-throw
       expect(logger.error).toHaveBeenCalledWith(
-        'sharepoint-error-status-write-failed',
+        'sharepoint-error-comment-failed',
         expect.any(Error),
         expect.any(Object)
       );

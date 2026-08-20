@@ -95,6 +95,21 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-offer-signed-update-failed', { itemId, error: err.message });
     });
 
+    // SharePoint mirror: hand the signed PDF to the HR-locked site. Silent
+    // no-op until SHAREPOINT_ENABLED=true; the consumer posts the link back.
+    if (cfg.sharepoint && cfg.sharepoint.enabled) {
+      try {
+        if (context.bindings) {
+          context.bindings.sharepointQueue = JSON.stringify({
+            agreementId, itemId: String(itemId), boardId: String(boardId), employeeName,
+          });
+        }
+        logger.event('archiveToBlob-sharepoint-queued', { itemId, agreementId });
+      } catch (err) {
+        logger.warn('archiveToBlob-sharepoint-queue-failed', { itemId, error: err.message });
+      }
+    }
+
     // Downstream kickoff: open the background check and link it to the hire
     await monday.createBackgroundCheck(boardId, itemId, employeeName ? employeeName.replace(/-/g, ' ') : null).catch(err => {
       logger.warn('archiveToBlob-bg-check-create-failed', { itemId, error: err.message });

@@ -114,17 +114,23 @@ async function processSharePointUpload(msg) {
       bytes: spUpload.bytes,
     });
 
-    // 5. Update Monday with SharePoint link (non-blocking)
+    // 5. Update Monday with SharePoint link (non-blocking). Never touch the
+    // status column here — the card is already ⑦ Done and must stay there.
     try {
-      const sharePointLinkColumn = cfg.monday.columns.sharePointLink || 'link_sharepoint';
-      await monday.updateStatus(boardId, itemId, {
-        [sharePointLinkColumn]: spUpload.webUrl,
-      }, { verify: false });
-      logger.info('sharepoint-monday-link-updated', {
-        agreementId,
-        itemId,
-        spItemId: spUpload.id,
-      });
+      const sharePointLinkColumn = cfg.monday.columns.sharePointLink;
+      if (sharePointLinkColumn) {
+        await monday.updateItemColumn(boardId, itemId, sharePointLinkColumn, {
+          url: spUpload.webUrl, text: 'SharePoint Copy',
+        });
+        logger.info('sharepoint-monday-link-updated', { agreementId, itemId, spItemId: spUpload.id });
+      } else {
+        logger.warn('sharepoint-link-column-unmapped', { itemId, note: 'set MONDAY_COL_SHAREPOINT_LINK to write the link onto the card' });
+      }
+      try {
+        await monday.logAction(itemId,
+          `🗂️ Signed packet copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}`
+        );
+      } catch (_) { /* comment is best-effort */ }
     } catch (mondayErr) {
       logger.warn('sharepoint-monday-update-failed', {
         agreementId,
@@ -132,19 +138,6 @@ async function processSharePointUpload(msg) {
         error: mondayErr.message,
       });
       // Don't fail the entire flow if Monday update fails
-    }
-
-    // 6. Update Monday status to "Shared to SharePoint"
-    try {
-      await monday.updateStatus(boardId, itemId, {
-        status: 'Shared to SharePoint',
-      }, { verify: false });
-    } catch (statusErr) {
-      logger.warn('sharepoint-status-update-failed', {
-        agreementId,
-        itemId,
-        error: statusErr.message,
-      });
     }
 
     logger.event('sharepoint-stage-complete', {
@@ -169,15 +162,18 @@ async function processSharePointUpload(msg) {
       employeeName,
     });
 
-    // Attempt to mark Monday status as "SharePoint Upload Error"
+    // Explain the failure on the card (comment only — never touch the status
+    // column: the hire is already ⑦ Done and the signed PDF is safe in blob).
     if (itemId) {
+      const httpCode = err.response ? err.response.status : null;
+      const apiBody = err.response && err.response.data ? JSON.stringify(err.response.data).slice(0, 300) : null;
       try {
-        await monday.updateStatus(boardId, itemId, {
-          status: 'SharePoint Upload Error',
-        }, { verify: false });
-      } catch (inner) {
-        logger.error('sharepoint-error-status-write-failed', inner, { itemId });
-      }
+        await monday.logAction(itemId,
+          `⚠️ SharePoint copy failed (the signed offer is still safe — see the Signed PDF link).\n\n`
+          + `SYSTEM: SharePoint (Graph upload)\nEXACT ERROR: ${err.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
+          + `FIX: the system retries automatically; if this message repeats, escalate to IT with this card link.`
+        );
+      } catch (inner) { logger.error('sharepoint-error-comment-failed', inner, { itemId }); }
     }
 
     // Re-throw to trigger DLQ (if max retries exceeded by Azure Functions runtime)

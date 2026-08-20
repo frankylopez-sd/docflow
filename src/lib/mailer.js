@@ -28,6 +28,42 @@ function renderTemplate(str, data) {
     (data && data[key] != null && data[key] !== '' ? String(data[key]) : match));
 }
 
+function _escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * Wrap plain template text in the MedWatchers-branded HTML shell: teal
+ * header, readable body (URLs become real links), quiet footer. The TEXT
+ * stays team-editable in Monday; branding lives here so every email matches.
+ */
+function renderHtml(bodyText) {
+  const paragraphs = _escapeHtml(bodyText)
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#0b7a6b;font-weight:bold;">$1</a>')
+    .replace(/\n/g, '<br>\n');
+  return `<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f2f4f3;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f3;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif;">
+<tr><td style="background:#0b7a6b;padding:20px 32px;">
+  <span style="color:#ffffff;font-size:22px;font-weight:bold;letter-spacing:0.5px;">MedWatchers</span>
+  <span style="color:#bfe5de;font-size:13px;padding-left:10px;">HR &amp; Onboarding</span>
+</td></tr>
+<tr><td style="padding:28px 32px;color:#20302c;font-size:15px;line-height:1.6;">
+${paragraphs}
+</td></tr>
+<tr><td style="padding:16px 32px;background:#f7faf9;border-top:1px solid #e3ebe8;color:#7d8f8a;font-size:12px;line-height:1.5;">
+  MedWatchers HR &middot; this email was sent by our onboarding system &mdash; just reply to reach a real person on the HR team.
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
+}
+
 async function _getToken() {
   if (_token.value && Date.now() < _token.expiresAt - 60000) return _token.value;
   const gm = config.load().graphMail;
@@ -62,7 +98,8 @@ async function sendMail({ to, subject, body, attachments }) {
   const token = await _getToken();
   const message = {
     subject,
-    body: { contentType: 'Text', content: body },
+    // Branded HTML shell around the team-editable text (see renderHtml)
+    body: { contentType: 'HTML', content: renderHtml(body) },
     toRecipients: [{ emailAddress: { address: String(to).trim() } }],
   };
   if (Array.isArray(attachments) && attachments.length > 0) {
@@ -84,4 +121,4 @@ async function sendMail({ to, subject, body, attachments }) {
 /** test hook */
 function _resetTokenCache() { _token = { value: null, expiresAt: 0 }; }
 
-module.exports = { isConfigured, renderTemplate, sendMail, _resetTokenCache };
+module.exports = { isConfigured, renderTemplate, renderHtml, sendMail, _resetTokenCache };

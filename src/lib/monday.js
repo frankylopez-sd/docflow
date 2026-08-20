@@ -298,8 +298,24 @@ async function createBackgroundCheck(hireBoardId, hireItemId, employeeName) {
     columnValues: JSON.stringify(columnValues),
   }, 'monday-create-bg-check');
 
-  const bgItemId = data.create_item && data.create_item.id;
+  let bgItemId = data.create_item && data.create_item.id;
   if (!bgItemId) throw new Error('createBackgroundCheck: create_item returned no id');
+
+  // Race check: two concurrent archives can both pass the pre-create lookup
+  // (seen in production — duplicate BG items born in the same second). Re-check
+  // after creating; every racer keeps the lowest item id and deletes its own.
+  const after = await findItemsByName(bg.boardId, marker).catch(() => []);
+  if (after.length > 1) {
+    const keepId = after.map((it) => Number(it.id)).sort((a, b) => a - b)[0];
+    if (Number(bgItemId) !== keepId) {
+      await _gql(
+        `mutation ($id: ID!) { delete_item (item_id: $id) { id } }`,
+        { id: String(bgItemId) }, 'monday-bg-dedupe-delete'
+      ).catch((err) => logger.warn('bg-check-dedupe-delete-failed', { bgItemId, error: err.message }));
+      logger.event('background-check-duplicate-removed', { hireItemId, removed: bgItemId, kept: keepId });
+      bgItemId = String(keepId);
+    }
+  }
 
   // Link the hire row to its background check (non-fatal if the relation write fails)
   try {

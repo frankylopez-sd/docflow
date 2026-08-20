@@ -6,6 +6,13 @@
       "name": "message",
       "queueName": "docflow-archive",
       "connection": "AzureWebJobsStorage"
+    },
+    {
+      "type": "queue",
+      "direction": "out",
+      "name": "sharepointQueue",
+      "queueName": "sharepoint-upload-queue",
+      "connection": "AzureWebJobsStorage"
     }
   ]
 }

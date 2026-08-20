@@ -45,6 +45,23 @@ describe('renderTemplate', () => {
   });
 });
 
+describe('renderHtml branding', () => {
+  test('wraps the text in the MedWatchers shell and linkifies URLs', () => {
+    const html = mailer.renderHtml('Hi Rita,\nSign here: https://sign.example/x?y=1');
+    expect(html).toContain('MedWatchers');
+    expect(html).toContain('#0b7a6b'); // brand teal
+    expect(html).toContain('<a href="https://sign.example/x?y=1"');
+    expect(html).toContain('Hi Rita,<br>');
+  });
+
+  test('escapes HTML in the team-edited text (no injection into the shell)', () => {
+    const html = mailer.renderHtml('<script>alert(1)</script> & "quotes"');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('&amp; &quot;quotes&quot;');
+  });
+});
+
 describe('sendMail', () => {
   test('is a safe no-op when Graph mail is not configured', async () => {
     expect(mailer.isConfigured()).toBe(false);
@@ -78,6 +95,9 @@ describe('sendMail', () => {
     const [sendUrl, sendPayload, sendCfg] = axios.post.mock.calls[1];
     expect(sendUrl).toBe('https://graph.microsoft.com/v1.0/users/onboarding%40medwatchers.com/sendMail');
     expect(sendPayload.message.subject).toBe('Welcome!');
+    expect(sendPayload.message.body.contentType).toBe('HTML');
+    expect(sendPayload.message.body.content).toContain('MedWatchers');
+    expect(sendPayload.message.body.content).toContain('Hi Rita');
     expect(sendPayload.message.toRecipients[0].emailAddress.address).toBe('rita@gmail.com');
     expect(sendPayload.saveToSentItems).toBe(true);
     expect(sendCfg.headers.Authorization).toBe('Bearer tok-1');

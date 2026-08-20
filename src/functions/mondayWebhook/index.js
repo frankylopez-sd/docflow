@@ -264,6 +264,25 @@ async function handleWebhook(req, mondayRow = null) {
       };
     }
     if (label === cfg.monday.offerLabels.approved) {
+      // Guard: the hire already finished — a re-approve mints a SECOND live
+      // Adobe agreement (two signable offers in the wild, statuses dragged
+      // back to ⑤). Seen in production 2026-08-20; block it hard.
+      const doneRow = await monday.readRow(boardId, itemId).catch(() => null);
+      const doneStatus = doneRow && doneRow.columns && doneRow.columns[cfg.monday.columns.status];
+      if (doneStatus === cfg.monday.statusLabels.complete || doneStatus === cfg.monday.statusLabels.archiving) {
+        await monday.logAction(itemId,
+          `⚠️ Not re-sending — this hire's paperwork is already complete (status "${doneStatus}", signed offer archived).\n\n`
+          + `Approving again would email the candidate a SECOND signing packet for a letter they already signed.\n\n`
+          + `If you truly need to redo the offer: move Onboarding Status off "${cfg.monday.statusLabels.complete}" first, then ☑ Generate Docs → review → "${cfg.monday.offerLabels.approved}". I've set the package status back to "${cfg.monday.offerLabels.signed}".`
+        ).catch(() => {});
+        await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.signed).catch(() => {});
+        return {
+          status: 200,
+          body: { blocked: true, reason: 'hire already completed', itemId: String(itemId) },
+          queueMessage: null,
+          warnings: [],
+        };
+      }
       // Guard: approving before a letter exists is the #1 sequence mistake.
       // Explain precisely instead of queueing a doomed send.
       const pdfLink = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.pdfUrl).catch(() => null);
@@ -284,7 +303,7 @@ async function handleWebhook(req, mondayRow = null) {
       }
       logger.event('offer-approved-queueing-sign', { itemId, boardId, label });
       await monday.logAction(itemId,
-        `✅ Approval received — the offer is being sent for signature now. No further action needed; this item will update as signers complete.`,
+        `✅ Approval received — sending everything in one go: the signing packet is on its way to Adobe and the candidate's package email is being prepared with the direct signing link. No further action needed; this item updates as it happens.`,
         `Offer Letter Status set to "${label}" by a person; a signing job was queued to docflow-sign.`
       ).catch((err) => logger.warn('monday-webhook-approval-post-failed', { itemId, error: err.message }));
       return {
@@ -343,6 +362,25 @@ async function handleWebhook(req, mondayRow = null) {
         ignored: true,
         reason: isColumnEvent ? 'not trigger checkbox checked' : 'unrecognized event type',
       },
+      queueMessage: null,
+      warnings: [],
+    };
+  }
+
+  // Guard: never rebuild docs for a hire whose paperwork is already complete —
+  // re-checking the box after ⑦ Done re-runs the whole pipeline, drags the
+  // card back to ⑤, and creates a second live agreement (2026-08-20 incident).
+  const guardRow = mondayRow || await monday.readRow(boardId, itemId).catch(() => null);
+  const guardStatus = guardRow && guardRow.columns && guardRow.columns[cfg.monday.columns.status];
+  if (guardStatus === cfg.monday.statusLabels.complete || guardStatus === cfg.monday.statusLabels.archiving) {
+    await monday.logAction(itemId,
+      `⚠️ Not rebuilding — this hire's paperwork is already complete (status "${guardStatus}", signed offer archived).\n\n`
+      + `Re-checking ☑ Generate Docs on a finished hire would restart the whole pipeline and send the candidate a second offer.\n\n`
+      + `If you truly need to redo it: move Onboarding Status off "${cfg.monday.statusLabels.complete}" first, then ☑ Generate Docs again.`
+    ).catch(() => {});
+    return {
+      status: 200,
+      body: { blocked: true, reason: 'hire already completed', itemId: String(itemId) },
       queueMessage: null,
       warnings: [],
     };
