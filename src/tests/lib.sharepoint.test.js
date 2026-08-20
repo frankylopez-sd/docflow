@@ -296,20 +296,14 @@ describe('sharepoint', () => {
       // First call: get path (404 - not found)
       axios.mockRejectedValueOnce(err404);
 
-      // Subsequent calls: list children (empty), then create folders
-      axios.mockResolvedValueOnce({ data: { value: [] } }); // list for Documents
-      axios.mockResolvedValueOnce({ data: { id: 'documents-id' } }); // create Documents
+      // Path is now Onboarding/{employeeFolder} — two levels
       axios.mockResolvedValueOnce({ data: { value: [] } }); // list for Onboarding
       axios.mockResolvedValueOnce({ data: { id: 'onboarding-id' } }); // create Onboarding
-      axios.mockResolvedValueOnce({ data: { value: [] } }); // list for 2026
-      axios.mockResolvedValueOnce({ data: { id: 'year-id' } }); // create 2026
-      axios.mockResolvedValueOnce({ data: { value: [] } }); // list for 08
-      axios.mockResolvedValueOnce({ data: { id: 'month-id' } }); // create 08
-      axios.mockResolvedValueOnce({ data: { value: [] } }); // list for Onboarding (doctype)
-      axios.mockResolvedValueOnce({ data: { id: 'doctype-id' } }); // create Onboarding (doctype)
+      axios.mockResolvedValueOnce({ data: { value: [] } }); // list for hire folder
+      axios.mockResolvedValueOnce({ data: { id: 'hire-folder-id' } }); // create Lopez-Francisco
 
-      const folderId = await sharepoint.ensureFolderPath('Onboarding');
-      expect(folderId).toBe('doctype-id');
+      const folderId = await sharepoint.ensureFolderPath('Lopez-Francisco');
+      expect(folderId).toBe('hire-folder-id');
     });
   });
 

@@ -94,10 +94,25 @@ async function processSharePointUpload(msg) {
     const signedPdf = await downloadSigned(agreementId);
     logger.info('sharepoint-download-complete', { agreementId, bytes: signedPdf.length });
 
-    // 4. Upload to SharePoint
-    const fileName = `${itemId}_${docType}_${Date.now()}.pdf`;
+    // 4. Upload to SharePoint — one folder per hire (Onboarding/Last-First),
+    // human-readable file name with Pacific date+time. Same-name collisions
+    // get " 1"/" 2" appended by Graph (conflictBehavior=rename) — never replaced.
+    const nameParts = String(employeeName || 'employee').replace(/-/g, ' ').trim().split(/\s+/);
+    const employeeFolder = (nameParts.length > 1
+      ? `${nameParts[nameParts.length - 1]}-${nameParts.slice(0, -1).join('-')}`
+      : nameParts[0]).replace(/[\\/:*?"<>|#%]+/g, '-');
+    const ptParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }).formatToParts(new Date());
+    const pt = (t) => (ptParts.find((p) => p.type === t) || {}).value || '';
+    const stamp = `${pt('year')}-${pt('month')}-${pt('day')} ${pt('hour')}.${pt('minute')} ${pt('dayPeriod')}`;
+    const docLabel = (docType && docType !== 'Document' ? docType : 'Signed Packet')
+      .replace(/[\\/:*?"<>|#%]+/g, '-');
+    const fileName = `${docLabel} — ${stamp}.pdf`;
     const metadata = {
       fileName,
+      employeeFolder,
       docType: docType.replace(/[^\w-]+/g, '-'),
       employeeName,
       agreementId,

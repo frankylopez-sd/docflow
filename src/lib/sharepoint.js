@@ -149,7 +149,7 @@ async function graphRequest(method, path, data = null, opts = {}) {
  * Lazy-creates: /Documents/Onboarding/{year}/{month}/{docType}/
  * @returns {Promise<string>} folder item ID (to upload into)
  */
-async function ensureFolderPath(docType = 'Onboarding') {
+async function ensureFolderPath(employeeFolder = 'General') {
   const cfg = config.load();
   const siteId = cfg.sharepoint?.siteId;
   const driveId = cfg.sharepoint?.driveId;
@@ -158,10 +158,9 @@ async function ensureFolderPath(docType = 'Onboarding') {
     throw new Error('SharePoint folder config missing: SHAREPOINT_SITE_ID, SHAREPOINT_DRIVE_ID required');
   }
 
-  const now = new Date();
-  const year = String(now.getFullYear());
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const folderPath = `Documents/Onboarding/${year}/${month}/${docType}`;
+  // One folder per hire — Onboarding/Lastname-Firstname — every document the
+  // hire ever signs lands in the same place (no year/month nesting).
+  const folderPath = `Onboarding/${employeeFolder}`;
 
   try {
     // Try to get the folder (if it exists)
@@ -244,11 +243,12 @@ async function uploadPDF(fileBuffer, metadata = {}, opts = {}) {
   } = metadata;
 
   try {
-    // Ensure folder path exists
-    const parentId = await ensureFolderPath(docType);
+    // Ensure the hire's folder exists
+    const parentId = await ensureFolderPath(metadata.employeeFolder || docType);
 
-    // Upload file with small session (< 4MB)
-    const uploadUrl = `/drives/${driveId}/items/${parentId}:/${fileName}:/content`;
+    // Upload (< 4MB). conflictBehavior=rename: a same-named file gets " 1",
+    // " 2"… appended automatically — old versions are never replaced.
+    const uploadUrl = `/drives/${driveId}/items/${parentId}:/${fileName}:/content?@microsoft.graph.conflictBehavior=rename`;
     const uploaded = await graphRequest('PUT', uploadUrl, fileBuffer, {
       headers: {
         'Content-Type': 'application/pdf',
