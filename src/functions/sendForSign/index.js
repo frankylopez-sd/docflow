@@ -17,19 +17,58 @@ module.exports = async function (context, queueItem) {
   try {
     let { boardId, itemId, pdfUrl, firstName, lastName, workEmail, supervisor } = queueItem;
 
-    logger.info('sendForSign-start', { itemId });
+    // TWO HUMAN GATES: mode 'prep' (④ Approve Package) builds the Adobe packet
+    // and posts the REAL email for HR to read — nothing leaves the building.
+    // Mode 'send' (⑤ Send Package) is the actual send button. Legacy messages
+    // with no mode only ever prep, so an old queue item can't surprise-send.
+    const mode = queueItem.mode === 'send' ? 'send' : 'prep';
 
-    // Duplicate-send guard: queue redelivery / double-approval minted two live
-    // agreements one second apart (2026-08-20). If this card is already out
-    // for signature with an agreement on file, do NOT mint another.
+    logger.info('sendForSign-start', { itemId, mode });
+
     const existingAgreement = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.agreementId)
       .then((v) => (typeof v === 'string' ? v : (v && (v.text || v.value))) || null)
       .catch(() => null);
     const rowNow = await monday.readRow(boardId, itemId).catch(() => null);
     const statusNow = rowNow && rowNow.columns && rowNow.columns[cfg.monday.columns.status];
+
+    if (!firstName || !lastName || !workEmail) {
+      const hire = await monday.fetchHireData(boardId, itemId);
+      firstName = firstName || hire.firstName;
+      lastName = lastName || hire.lastName;
+      workEmail = workEmail || hire.workEmail;
+      supervisor = supervisor || hire.supervisor;
+      logger.info('sendForSign-hydrated-from-monday', { itemId });
+    }
+
+    // ── GATE 2 · ⑤ Send Package — the packet exists, email it to the candidate.
+    if (mode === 'send') {
+      if (!existingAgreement) {
+        throw new Error(`sendForSign: no Adobe agreement on item ${itemId} — select "${cfg.monday.offerLabels.approved}" first to build the packet.`);
+      }
+      const delivered = await deliverPackage(cfg, {
+        boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement,
+      });
+      await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.outForSignature)
+        .catch((err) => logger.warn('sendForSign-status-update-failed', { itemId, error: err.message }));
+      await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sent)
+        .catch((err) => logger.warn('sendForSign-offer-sent-update-failed', { itemId, error: err.message }));
+      logger.event('sendForSign-package-delivered', { itemId, agreementId: existingAgreement, emailed: Boolean(delivered.sentTo) });
+      context.res = { status: 200, body: { itemId, agreementId: existingAgreement, delivered: true, emailed: Boolean(delivered.sentTo) } };
+      return;
+    }
+
+    // ── GATE 1 · ④ Approve Package — build once; never mint a second agreement.
     if (existingAgreement && statusNow === cfg.monday.statusLabels.outForSignature) {
       logger.event('sendForSign-duplicate-skipped', { itemId, existingAgreement });
       context.res = { status: 200, body: { itemId, skipped: true, reason: 'already out for signature', agreementId: existingAgreement } };
+      return;
+    }
+    if (existingAgreement) {
+      // Re-approved before sending: refresh the draft against the same packet.
+      await deliverPackage(cfg, {
+        boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement, draftOnly: true,
+      });
+      context.res = { status: 200, body: { itemId, agreementId: existingAgreement, reused: true } };
       return;
     }
 
@@ -56,20 +95,6 @@ module.exports = async function (context, queueItem) {
     } catch (err) {
       logger.warn('sendForSign-sas-remint-failed-using-stored', { itemId, error: err.message });
     }
-    if (!firstName || !lastName || !workEmail) {
-      const hire = await monday.fetchHireData(boardId, itemId);
-      firstName = firstName || hire.firstName;
-      lastName = lastName || hire.lastName;
-      workEmail = workEmail || hire.workEmail;
-      supervisor = supervisor || hire.supervisor;
-      logger.info('sendForSign-hydrated-from-monday', { itemId });
-    }
-
-    // Update Monday: status → ⑤ Out for Signature
-    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.outForSignature).catch(err => {
-      logger.warn('sendForSign-status-update-failed', { itemId, error: err.message });
-    });
-
     // Signers by mode: 'candidate' sends straight to the new hire (Adobe
     // emails them the document, one signature completes it); 'serial3' runs
     // the HR -> Manager -> Employee chain.
@@ -123,81 +148,26 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-signers-update-failed', { itemId, error: err.message });
     });
 
-    // Offer lifecycle: mark as sent
-    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sent).catch(err => {
-      logger.warn('sendForSign-offer-sent-update-failed', { itemId, error: err.message });
-    });
-
     const packetLine = packetDocs.length
       ? `\n\n📑 In the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
       : '';
     await monday.logAction(itemId,
-      `✉️ ${packetDocs.length ? 'Hire packet' : 'Offer'} is out for signature. Signing order: ${signers.map(s => s.name).join(' → ')}. `
-      + `Nothing to do — this item updates automatically as each person signs.${packetLine}`,
-      `Adobe Sign agreement ${agreementId} created with ${signers.length} serial signers and ${1 + packetDocs.length} document(s); completion webhook + 30-min poller are watching it.`
+      `📦 Packet built and ready — nothing has been sent yet. Signing order: ${signers.map(s => s.name).join(' → ')}.${packetLine}\n\n`
+      + `YOUR MOVE: read the exact email in the next comment. Looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes out to ${firstName} immediately. Something off → "${cfg.monday.offerLabels.moreInfo}", fix the fields, and the letter rebuilds itself.`,
+      `Adobe Sign agreement ${agreementId} created with ${signers.length} signer(s) and ${1 + packetDocs.length} document(s); no candidate email sent (awaiting the ⑤ Send Package gate).`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
-    // The candidate package: one email with everything the candidate needs —
-    // including their DIRECT Adobe signing link, so our email is the single
-    // front door (no hunting for the separate Adobe notification). Wording is
-    // team-editable on the Email Templates board; when Graph mail is armed it
-    // sends automatically, otherwise HR gets a ready-to-send draft.
-    const mailer = require('../../lib/mailer');
-    const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
-    // Adobe's own emails are suppressed — OUR link is the only door, so poll
-    // harder for it and shout on the card if it ever can't be fetched.
-    const signLink = await adobe.getSigningUrl(agreementId, { attempts: 10, delayMs: 2000 }).catch(() => null);
-    if (!signLink) {
-      await monday.logAction(itemId,
-        `⚠️ Heads-up: Adobe hasn't issued the direct signing link yet and Adobe's own emails are turned off — the candidate has NO link until this is fixed. Grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it, or re-select "${cfg.monday.offerLabels.approved}" in a few minutes to retry.`
-      ).catch(() => {});
-    }
-    const tpl = await monday.getEmailTemplate('package').catch(() => null);
-    const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(`${firstName} ${lastName}`)}`;
-    // EMAIL 1 of 2: welcome + info form + signing link, all in one send.
-    const fill = {
-      firstName, lastName, fullName: `${firstName} ${lastName}`, formLink,
-      signLink: signLink || '(signing link pending — HR will follow up shortly)',
-    };
-    const pkgSubject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}} — everything you need is right here! 🎉', fill);
-    const pkgBody = mailer.renderTemplate((tpl && tpl.body)
-      || `Hi {{firstName}},\n\n`
-      + `Congratulations and welcome to the MedWatchers family! Everything you need to make it official is in this one email:\n\n`
-      + `1️⃣ Sign your offer packet (offer letter + onboarding documents, one sitting, under 2 minutes):\n{{signLink}}\n\n`
-      + `2️⃣ Fill out your quick info form (3 minutes — contact info, emergency contact, start availability):\n{{formLink}}\n\n`
-      + `That's it! Once both are done we'll confirm by email and get your first day ready.\n\n`
-      + `Questions anytime — just reply here. We can't wait!\n\n`
-      + `Warmly,\nThe MedWatchers HR Team`, fill);
+    // Post the REAL email (with the real signing link) as a draft only — the
+    // ⑤ Send Package gate is what actually delivers it.
+    await deliverPackage(cfg, {
+      boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly: true,
+    });
 
-    let pkgSentTo = null;
-    if (mailer.isConfigured()) {
-      const personal = await monday.getColumnValueJson(boardId, itemId, cfg.monday.formSync.targetColumns.personalEmail).catch(() => null);
-      const to = (personal && (personal.email || personal.text)) || workEmail;
-      if (to && /@/.test(String(to))) {
-        try {
-          const result = await mailer.sendMail({ to, subject: pkgSubject, body: pkgBody });
-          if (result.sent) pkgSentTo = to;
-        } catch (err) {
-          logger.warn('sendForSign-package-email-failed', { itemId, error: err.message });
-        }
-      }
-    }
-
-    const pkgBlock = `— — — — — — — — — —\nSubject: ${pkgSubject}\n\n${pkgBody}\n— — — — — — — — — —`;
-    await monday.logAction(itemId, pkgSentTo
-      ? `📦 Candidate package emailed automatically to ${pkgSentTo}. Copy for the record:\n\n`
-        + `${pkgBlock}\n\n`
-        + `🔗 For HR reference (do not forward): offer PDF ${pdfUrl ? '(PDF Document column)' : ''} · agreement ${agreementId} · this card: ${cardLink}`
-      : `📦 Candidate package — ready to send to ${firstName}:\n\n`
-        + `${pkgBlock}\n\n`
-        + `🔗 For HR reference (do not forward): offer PDF ${pdfUrl ? '(PDF Document column)' : ''} · agreement ${agreementId} · this card: ${cardLink}`
-    ).catch(err => logger.warn('sendForSign-package-notify-failed', { itemId, error: err.message }));
-
-    logger.info('sendForSign-complete', { itemId, agreementId });
+    logger.info('sendForSign-complete', { itemId, agreementId, mode });
 
     context.res = {
       status: 200,
-      body: { itemId, agreementId, signers: signers.length, status: 'Agreement created and sent to signers' }
+      body: { itemId, agreementId, signers: signers.length, status: 'Packet built — awaiting the Send Package gate' }
     };
 
   } catch (error) {
@@ -230,3 +200,68 @@ module.exports = async function (context, queueItem) {
     throw error;
   }
 };
+
+/**
+ * Compose EMAIL 1 (welcome + signing link + info form) and either send it or
+ * post it as a draft for HR. Used by both gates: ④ Approve Package always
+ * drafts (draftOnly), ⑤ Send Package actually sends when Graph mail is armed.
+ * @returns {Promise<{sentTo:string|null, signLink:string|null}>}
+ */
+async function deliverPackage(cfg, opts) {
+  const { boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly } = opts;
+  const mailer = require('../../lib/mailer');
+  const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
+
+  // Adobe's own emails are suppressed — OUR link is the only door, so poll
+  // harder for it and shout on the card if it can't be fetched.
+  const signLink = await adobe.getSigningUrl(agreementId, { attempts: 10, delayMs: 2000 }).catch(() => null);
+  if (!signLink) {
+    await monday.logAction(itemId,
+      `⚠️ Heads-up: Adobe hasn't issued the direct signing link yet, and Adobe's own emails are turned off — so the candidate would have NO way in. Wait a minute and re-select "${cfg.monday.offerLabels.approved}" to retry, or grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it by hand.`
+    ).catch(() => {});
+  }
+
+  const tpl = await monday.getEmailTemplate('package').catch(() => null);
+  const formLink = `${cfg.monday.formSync.formUrl}?name=${encodeURIComponent(`${firstName} ${lastName}`)}`;
+  const fill = {
+    firstName, lastName, fullName: `${firstName} ${lastName}`, formLink,
+    signLink: signLink || '(signing link pending — HR will follow up shortly)',
+  };
+  const subject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}} — everything you need is right here! 🎉', fill);
+  const body = mailer.renderTemplate((tpl && tpl.body)
+    || `Hi {{firstName}},\n\n`
+    + `Congratulations and welcome to the MedWatchers family! Everything you need to make it official is in this one email:\n\n`
+    + `1️⃣ Sign your offer packet (offer letter + onboarding documents, one sitting, under 2 minutes):\n{{signLink}}\n\n`
+    + `2️⃣ Fill out your quick info form (3 minutes — contact info, emergency contact, start availability):\n{{formLink}}\n\n`
+    + `That's it! Once both are done we'll confirm by email and get your first day ready.\n\n`
+    + `Questions anytime — just reply here. We can't wait!\n\n`
+    + `Warmly,\nThe MedWatchers HR Team`, fill);
+
+  let sentTo = null;
+  if (!draftOnly && mailer.isConfigured()) {
+    const personal = await monday.getColumnValueJson(boardId, itemId, cfg.monday.formSync.targetColumns.personalEmail).catch(() => null);
+    const to = (personal && (personal.email || personal.text)) || workEmail;
+    if (to && /@/.test(String(to))) {
+      try {
+        const result = await mailer.sendMail({ to, subject, body });
+        if (result.sent) sentTo = to;
+      } catch (err) {
+        logger.warn('sendForSign-package-email-failed', { itemId, error: err.message });
+      }
+    }
+  }
+
+  const block = `— — — — — — — — — —\nSubject: ${subject}\n\n${body}\n— — — — — — — — — —`;
+  const reference = `\n\n🔗 For HR reference (do not forward): offer PDF (PDF Document column) · agreement ${agreementId} · this card: ${cardLink}`;
+  const headline = sentTo
+    ? `📤 Sent! ${firstName}'s welcome package went to ${sentTo} just now. Copy for the record:\n\n`
+    : draftOnly
+      ? `📧 THE EXACT EMAIL — this is what ${firstName} receives the moment you select "${cfg.monday.offerLabels.sendPackage}". Nothing has been sent yet:\n\n`
+      : `📦 Ready to send to ${firstName} — auto-send is off, so copy this into Outlook and send it yourself:\n\n`;
+  await monday.logAction(itemId, `${headline}${block}${reference}`)
+    .catch((err) => logger.warn('sendForSign-package-notify-failed', { itemId, error: err.message }));
+
+  return { sentTo, signLink };
+}
+
+module.exports.deliverPackage = deliverPackage;

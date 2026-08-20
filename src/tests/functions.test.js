@@ -103,14 +103,23 @@ describe('Azure Function entrypoints', () => {
     expect(new Date(signMsg.approvedAt).getTime()).not.toBeNaN();
   });
 
-  test('sendForSign entry processes the HR-approved sign queue message', async () => {
+  test('sendForSign gate 1 builds the packet without advancing to Sent', async () => {
     // The offer must exist first: generatePDF writes the PDF link column that
     // sendForSign hydrates from (approval messages carry only {boardId, itemId}).
     await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
     const ctx = makeContext();
     await sendForSign(ctx, { boardId: '111', itemId: '555' });
-    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.outForSignature });
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
+    // Prep must NOT claim "out for signature" — the send gate does that.
+    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.awaitingReview });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.ready });
+  });
+
+  test('sendForSign gate 2 delivers the package and advances the statuses', async () => {
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555', mode: 'send' });
+    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.outForSignature });
     expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.sent });
   });
 

@@ -262,19 +262,59 @@ async function handleWebhook(req, mondayRow = null) {
           warnings: [],
         };
       }
-      logger.event('offer-approved-queueing-sign', { itemId, boardId, label });
+      logger.event('offer-approved-queueing-prep', { itemId, boardId, label });
       await monday.logAction(itemId,
-        `✅ Approval received — sending everything in one go: the signing packet is on its way to Adobe and the candidate's package email is being prepared with the direct signing link. No further action needed; this item updates as it happens.`,
-        `Offer Letter Status set to "${label}" by a person; a signing job was queued to docflow-sign.`
+        `✅ Approved — building the signing packet now (offer letter + every Active packet document). NOTHING is sent yet.\n\n`
+        + `In about a minute you'll see the exact email the candidate would receive, with their real signing link in it. Read it, then select "${cfg.monday.offerLabels.sendPackage}" to actually send it.`,
+        `Offer Letter Status set to "${label}" by a person; a PREP job was queued to docflow-sign (mode=prep, no candidate email).`
       ).catch((err) => logger.warn('monday-webhook-approval-post-failed', { itemId, error: err.message }));
       return {
         status: 200,
-        body: { queued: true, itemId: String(itemId), route: 'sign' },
+        body: { queued: true, itemId: String(itemId), route: 'sign', mode: 'prep' },
         queueMessage: null,
         signMessage: {
           boardId: String(boardId),
           itemId: String(itemId),
+          mode: 'prep',
           approvedAt: new Date().toISOString(),
+          userId: claims?.userId || claims?.sub || undefined,
+        },
+        warnings: [],
+      };
+    }
+    // GATE 2 — the actual send button.
+    if (label === cfg.monday.offerLabels.sendPackage) {
+      const agreementOnFile = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.agreementId)
+        .then((v) => (typeof v === 'string' ? v : (v && (v.text || v.value))) || null)
+        .catch(() => null);
+      if (!agreementOnFile) {
+        await monday.logAction(itemId,
+          `⚠️ Nothing to send yet — this card has no signing packet.\n\n`
+          + `WHY (exact): the "Adobe Agreement ID" column (${cfg.monday.columns.agreementId}) is empty, so the packet was never built.\n\n`
+          + `THE ORDER: 1️⃣ fill the hire fields (the letter builds itself) → 2️⃣ review the PDF → 3️⃣ "${cfg.monday.offerLabels.approved}" → 4️⃣ then "${cfg.monday.offerLabels.sendPackage}".`
+        ).catch(() => {});
+        await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.ready).catch(() => {});
+        return {
+          status: 200,
+          body: { blocked: true, reason: 'no packet built yet', itemId: String(itemId) },
+          queueMessage: null,
+          warnings: [],
+        };
+      }
+      logger.event('offer-send-package-queued', { itemId, boardId, agreementOnFile });
+      await monday.logAction(itemId,
+        `📤 Sending now — ${cfg.monday.offerLabels.sendPackage} received. The candidate's welcome email is going out with their signing link and info form. This item updates itself from here.`,
+        `Offer Letter Status set to "${label}" by a person; a SEND job was queued to docflow-sign (mode=send, agreement ${agreementOnFile}).`
+      ).catch((err) => logger.warn('monday-webhook-send-post-failed', { itemId, error: err.message }));
+      return {
+        status: 200,
+        body: { queued: true, itemId: String(itemId), route: 'sign', mode: 'send' },
+        queueMessage: null,
+        signMessage: {
+          boardId: String(boardId),
+          itemId: String(itemId),
+          mode: 'send',
+          sentAt: new Date().toISOString(),
           userId: claims?.userId || claims?.sub || undefined,
         },
         warnings: [],

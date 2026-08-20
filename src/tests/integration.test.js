@@ -147,14 +147,21 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(signMsg).toMatchObject({ boardId: '111', itemId: '555' });
     expect(new Date(signMsg.approvedAt).getTime()).not.toBeNaN();
 
-    // 4. send for signature: hydrates the PDF link + hire fields from Monday,
-    //    creates the agreement, status + offer lifecycle -> the signing labels
+    // 4a. GATE 1 (④ Approve Package): builds the agreement, sends nothing.
     const signCtx = makeContext();
     await sendForSign(signCtx, signMsg);
     expect(signCtx.res.body.agreementId).toBe('AGR-42');
     expect(signCtx.res.body.signers).toBe(3); // HR -> Manager -> Employee, serial
-    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.outForSignature });
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
+    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.awaitingReview });
+
+    // 4b. GATE 2 (⑤ Send Package): the human presses send -> the labels advance.
+    const sendEvent = await mondayWebhook.handleWebhook(
+      offerStatusEvent(makeMondayJwt('test-signing-secret'), offerLabels.sendPackage, offerCol)
+    );
+    expect(sendEvent.signMessage).toMatchObject({ itemId: '555', mode: 'send' });
+    await sendForSign(makeContext(), sendEvent.signMessage);
+    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.outForSignature });
     expect(backend.rows[555].written[offerCol]).toEqual({ label: offerLabels.sent });
 
     // 5. Adobe completion webhook -> archive queue message
@@ -192,7 +199,7 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(backend.rows[555].written.status).toEqual({ label: statusLabels.complete });
     expect(backend.rows[555].written[offerCol]).toEqual({ label: offerLabels.signed });
     expect(backend.rows[555].written.link_signed).toMatchObject({ url: archived.archiveUrl });
-  });
+  }, 20000); // full nine-stage walk incl. both signing gates
 });
 
 describe('failure recovery', () => {
@@ -234,6 +241,8 @@ describe('failure recovery', () => {
     const retryCtx = makeContext();
     await sendForSign(retryCtx, signMsg);
     expect(retryCtx.res.body.agreementId).toBe('AGR-42');
+    // Recovery rebuilds the packet; the send gate still owns the advance.
+    await sendForSign(makeContext(), { ...signMsg, mode: 'send' });
     expect(backend.rows[555].written.status).toEqual({ label: statusLabels.outForSignature });
     expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: offerLabels.sent });
   });

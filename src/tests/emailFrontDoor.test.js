@@ -72,21 +72,23 @@ afterAll(() => {
   config.reset();
 });
 
-describe('candidate package — direct signing link', () => {
-  test('unarmed: draft comment carries the direct Adobe signing link', async () => {
+describe('candidate package — two gates: prep drafts, send delivers', () => {
+  test('GATE 1 (prep): posts the real email as a draft and sends NOTHING, even armed', async () => {
+    armGraphMail(); // armed on purpose: prep must still not send
     await sendForSign(makeContext(), signQueueItem());
 
-    const pkg = backend.updates.find((u) => u.body.includes('Candidate package'));
+    const pkg = backend.updates.find((u) => u.body.includes('THE EXACT EMAIL'));
     expect(pkg).toBeDefined();
-    expect(pkg.body).toContain('ready to send');
+    expect(pkg.body).toContain('Nothing has been sent yet');
     expect(pkg.body).toContain(ESIGN_URL);
     expect(pkg.body).toContain('Fill out your quick info form');
     expect(graphSendCalls()).toHaveLength(0);
   });
 
-  test('armed: package email sends automatically with the signing link inside', async () => {
+  test('GATE 2 (send): armed, emails the candidate with the signing link inside', async () => {
     armGraphMail();
-    await sendForSign(makeContext(), signQueueItem());
+    await sendForSign(makeContext(), signQueueItem()); // gate 1 builds the packet
+    await sendForSign(makeContext(), { ...signQueueItem(), mode: 'send' });
 
     const sends = graphSendCalls();
     expect(sends).toHaveLength(1);
@@ -94,14 +96,15 @@ describe('candidate package — direct signing link', () => {
     expect(payload.message.toRecipients[0].emailAddress.address).toBe('jane@medwatchers.com');
     expect(payload.message.body.content).toContain(ESIGN_URL);
 
-    const pkg = backend.updates.find((u) => u.body.includes('Candidate package'));
-    expect(pkg.body).toContain('emailed automatically to jane@medwatchers.com');
+    const pkg = backend.updates.find((u) => u.body.includes('Sent!'));
+    expect(pkg.body).toContain('went to jane@medwatchers.com');
   });
 
-  test('armed but Adobe has no signing URL yet: email still sends with fallback wording', async () => {
+  test('GATE 2 with no signing URL from Adobe: still sends, with fallback wording', async () => {
     armGraphMail();
     installRoutes(axios, backend, { noSigningUrl: true });
     await sendForSign(makeContext(), signQueueItem());
+    await sendForSign(makeContext(), { ...signQueueItem(), mode: 'send' });
 
     const sends = graphSendCalls();
     expect(sends).toHaveLength(1);

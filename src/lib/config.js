@@ -116,9 +116,12 @@ function load(options = {}) {
         notStarted: env.MONDAY_OFFER_LABEL_NOT_STARTED || '① Idle',
         generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating',
         ready: env.MONDAY_OFFER_LABEL_READY || '③ 👤 Review',
-        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Approve',
-        sent: env.MONDAY_OFFER_LABEL_SENT || '⑤ ⚙️ Signing',
-        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑥ 🎉 Signed',
+        // TWO human gates: approved builds the Adobe packet (sends nothing),
+        // sendPackage is the actual send button.
+        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Approve Package',
+        sendPackage: env.MONDAY_OFFER_LABEL_SEND_PACKAGE || '⑤ 📤 Send Package',
+        sent: env.MONDAY_OFFER_LABEL_SENT || '⑥ ⚙️ Signing',
+        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑦ 🎉 Signed',
         moreInfo: env.MONDAY_OFFER_LABEL_MORE_INFO || '✋ Revise',
         denied: env.MONDAY_OFFER_LABEL_DENIED || '🛑 Denied',
         failed: env.MONDAY_OFFER_LABEL_FAILED || '❌ Failed',
@@ -298,7 +301,7 @@ function load(options = {}) {
   ];
   const ol = cfg.monday.offerLabels;
   cfg.monday.offerOrder = [
-    ol.notStarted, ol.generating, ol.ready, ol.approved, ol.sent, ol.signed,
+    ol.notStarted, ol.generating, ol.ready, ol.approved, ol.sendPackage, ol.sent, ol.signed,
   ];
 
   _cache = cfg;
