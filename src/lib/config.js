@@ -119,14 +119,17 @@ function load(options = {}) {
       // imperative = a person acts, -ing = automation in progress)
       offerLabels: {
         notStarted: env.MONDAY_OFFER_LABEL_NOT_STARTED || '① Idle',
-        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating',
+        generating: env.MONDAY_OFFER_LABEL_GENERATING || '② ⚙️ Generating Letter',
         ready: env.MONDAY_OFFER_LABEL_READY || '③ 👤 Review',
-        // TWO human gates: approved builds the Adobe packet (sends nothing),
-        // sendPackage is the actual send button.
-        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Approve Package',
-        sendPackage: env.MONDAY_OFFER_LABEL_SEND_PACKAGE || '⑤ 📤 Send Package',
-        sent: env.MONDAY_OFFER_LABEL_SENT || '⑥ ⚙️ Signing',
-        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑦ 🎉 Signed',
+        // TWO human gates (④ approved, ⑦ sendPackage) with the machine's own
+        // work visible in between, so the board is never a black box.
+        approved: env.MONDAY_OFFER_LABEL_APPROVED || '④ ✅ Package Approved',
+        creatingPackage: env.MONDAY_OFFER_LABEL_CREATING || '⑤ ⚙️ Creating Package',
+        readyToSend: env.MONDAY_OFFER_LABEL_READY_TO_SEND || '⑥ 👀 Ready to Send',
+        sendPackage: env.MONDAY_OFFER_LABEL_SEND_PACKAGE || '⑦ 📤 Send Package',
+        sendingEmail: env.MONDAY_OFFER_LABEL_SENDING || '⑧ ⚙️ Sending Email',
+        sent: env.MONDAY_OFFER_LABEL_SENT || '⑨ ⚙️ Signing',
+        signed: env.MONDAY_OFFER_LABEL_SIGNED || '⑩ 🎉 Signed',
         moreInfo: env.MONDAY_OFFER_LABEL_MORE_INFO || '✋ Revise',
         denied: env.MONDAY_OFFER_LABEL_DENIED || '🛑 Denied',
         failed: env.MONDAY_OFFER_LABEL_FAILED || '❌ Failed',
@@ -306,7 +309,8 @@ function load(options = {}) {
   ];
   const ol = cfg.monday.offerLabels;
   cfg.monday.offerOrder = [
-    ol.notStarted, ol.generating, ol.ready, ol.approved, ol.sendPackage, ol.sent, ol.signed,
+    ol.notStarted, ol.generating, ol.ready, ol.approved, ol.creatingPackage,
+    ol.readyToSend, ol.sendPackage, ol.sendingEmail, ol.sent, ol.signed,
   ];
 
   _cache = cfg;

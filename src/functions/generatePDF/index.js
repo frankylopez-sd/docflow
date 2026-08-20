@@ -151,6 +151,9 @@ async function processGenerate(context, queueItem) {
           })
     };
 
+    const { startProgress } = require('../../lib/util');
+    const progress = startProgress((t) => monday.logAction(itemId, t), { phase: 'picking the right offer-letter template for this role' });
+
     // Select the offer-letter template from the hire's role signals.
     // Board vocabulary: payClass ∈ {Clerk, RPH, Management}, flsaStatus ∈
     // {Exempt, Non-Exempt}, workerType ∈ {Full-Time, Part-Time, Temp, Contract}.
@@ -160,11 +163,20 @@ async function processGenerate(context, queueItem) {
 
     // Call Adobe PDF Services to merge template
     logger.info('generatePDF-calling-adobe', { itemId, templateKey });
-    const pdfBuffer = await adobe.generateOfferLetter(mergeData, { templateKey });
+    progress.setPhase(`Adobe is merging the hire's details into "${templateKey}"`);
+    let pdfBuffer;
+    try {
+      pdfBuffer = await adobe.generateOfferLetter(mergeData, { templateKey });
+    } catch (err) {
+      progress.stop();
+      throw err;
+    }
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
+      progress.stop();
       throw new Error('Adobe returned empty PDF');
     }
+    progress.setPhase('storing the PDF and attaching it to this card');
 
     logger.info('generatePDF-created', { itemId, size: pdfBuffer.length });
 
@@ -187,6 +199,7 @@ async function processGenerate(context, queueItem) {
       itemId, cfg.monday.columns.offerFile, pdfBuffer,
       `Offer Letter - ${firstName} ${lastName}.pdf`
     );
+    progress.stop();
 
     // HR review gate: the offer stops here as "Offer Ready". Signing is
     // queued by mondayWebhook only when HR flips the offer status to the

@@ -112,7 +112,8 @@ describe('Azure Function entrypoints', () => {
     expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
     // Prep must NOT claim "out for signature" — the send gate does that.
     expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.awaitingReview });
-    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.ready });
+    // It ends on "Ready to Send" so the board shows the packet is waiting on a human.
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.readyToSend });
   });
 
   test('sendForSign gate 2 delivers the package and advances the statuses', async () => {

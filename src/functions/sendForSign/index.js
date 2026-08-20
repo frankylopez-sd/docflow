@@ -4,6 +4,7 @@ const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const adobe = require('../../lib/adobe');
 const monday = require('../../lib/monday');
+const { startProgress } = require('../../lib/util');
 
 /**
  * sendForSign: Queue-triggered function that routes PDF to Adobe Sign
@@ -45,9 +46,16 @@ module.exports = async function (context, queueItem) {
       if (!existingAgreement) {
         throw new Error(`sendForSign: no Adobe agreement on item ${itemId} — select "${cfg.monday.offerLabels.approved}" first to build the packet.`);
       }
-      const delivered = await deliverPackage(cfg, {
-        boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement,
-      });
+      await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sendingEmail).catch(() => {});
+      const sendProgress = startProgress((t) => monday.logAction(itemId, t), { phase: 'fetching the signing link from Adobe, then emailing the candidate' });
+      let delivered;
+      try {
+        delivered = await deliverPackage(cfg, {
+          boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement,
+        });
+      } finally {
+        sendProgress.stop();
+      }
       await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.outForSignature)
         .catch((err) => logger.warn('sendForSign-status-update-failed', { itemId, error: err.message }));
       await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sent)
@@ -57,9 +65,16 @@ module.exports = async function (context, queueItem) {
       return;
     }
 
-    // ── GATE 1 · ④ Approve Package — build once; never mint a second agreement.
+    // ── GATE 1 · ④ Package Approved — build once; never mint a second
+    // agreement. A silent skip looks identical to a broken system, so always
+    // say why nothing happened (2026-08-20: "I hit approve and nothing").
     if (existingAgreement && statusNow === cfg.monday.statusLabels.outForSignature) {
       logger.event('sendForSign-duplicate-skipped', { itemId, existingAgreement });
+      await monday.logAction(itemId,
+        `ℹ️ Nothing to rebuild — this packet was already built AND sent to the candidate, so approving again does nothing (that's on purpose: it would put a second signing packet in their inbox).\n\n`
+        + `Agreement on file: ${existingAgreement}\n\n`
+        + `Need to send a corrected packet? Select "${cfg.monday.offerLabels.moreInfo}" first, fix the fields (the letter rebuilds itself), then approve again.`
+      ).catch(() => {});
       context.res = { status: 200, body: { itemId, skipped: true, reason: 'already out for signature', agreementId: existingAgreement } };
       return;
     }
@@ -95,6 +110,12 @@ module.exports = async function (context, queueItem) {
     } catch (err) {
       logger.warn('sendForSign-sas-remint-failed-using-stored', { itemId, error: err.message });
     }
+    // The board must show the machine working, not sit on the human's label.
+    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.creatingPackage).catch((err) => {
+      logger.warn('sendForSign-creating-status-failed', { itemId, error: err.message });
+    });
+    const progress = startProgress((t) => monday.logAction(itemId, t), { phase: 'reading the hire record and re-minting the document link' });
+
     // Signers by mode: 'candidate' sends straight to the new hire (Adobe
     // emails them the document, one signature completes it); 'serial3' runs
     // the HR -> Manager -> Employee chain.
@@ -112,11 +133,13 @@ module.exports = async function (context, queueItem) {
     // Signing packet: team-managed catalog rows (policies, consent forms)
     // ride in the same agreement behind the custom offer letter — one signing
     // session, one combined signed PDF back. Empty catalog = offer only.
+    progress.setPhase('collecting the packet documents from the Template Catalog');
     const packetDocs = await monday.getPacketFiles().catch(err => {
       logger.warn('sendForSign-packet-load-failed', { itemId, error: err.message });
       return [];
     });
 
+    progress.setPhase(`uploading ${1 + packetDocs.length} document(s) to Adobe and building the agreement`);
     logger.info('sendForSign-creating-agreement', { itemId, signerCount: signers.length, packetDocs: packetDocs.length });
 
     // Create Adobe Sign agreement
@@ -167,9 +190,20 @@ module.exports = async function (context, queueItem) {
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
 
     // Post the REAL email (with the real signing link) as a draft only — the
-    // ⑤ Send Package gate is what actually delivers it.
-    await deliverPackage(cfg, {
-      boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly: true,
+    // Send Package gate is what actually delivers it.
+    progress.setPhase('asking Adobe for the candidate\'s direct signing link');
+    try {
+      await deliverPackage(cfg, {
+        boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly: true,
+      });
+    } finally {
+      progress.stop();
+    }
+
+    // Packet is built and the email is on the card: hand the board back to the
+    // human with a label that says exactly that.
+    await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.readyToSend).catch((err) => {
+      logger.warn('sendForSign-ready-to-send-status-failed', { itemId, error: err.message });
     });
 
     logger.info('sendForSign-complete', { itemId, agreementId, mode });

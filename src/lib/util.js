@@ -86,4 +86,30 @@ class RateLimiter {
   }
 }
 
-module.exports = { sleep, retry, RateLimiter };
+/**
+ * Live progress narrator. While a long step runs, post a comment on the card
+ * every `intervalMs` saying exactly what the machine is doing right now — so a
+ * waiting human never stares at a silent card. Call the returned stop() in a
+ * finally block; it never posts after being stopped.
+ *
+ * @param {Function} post async (text) => any — usually monday.logAction bound to an item
+ * @param {Object} state mutable { phase: string } the caller keeps updating
+ * @returns {{stop: Function, setPhase: Function}}
+ */
+function startProgress(post, state, intervalMs = 30000) {
+  const startedAt = Date.now();
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (stopped) return;
+    const secs = Math.round((Date.now() - startedAt) / 1000);
+    Promise.resolve(post(`⏳ Still working (${secs}s in) — ${state.phase}. Nothing needed from you; this card updates itself.`))
+      .catch(() => {});
+  }, intervalMs);
+  if (timer && typeof timer.unref === 'function') timer.unref(); // never hold the process open
+  return {
+    setPhase(phase) { state.phase = phase; },
+    stop() { stopped = true; clearInterval(timer); },
+  };
+}
+
+module.exports = { sleep, retry, RateLimiter, startProgress };
