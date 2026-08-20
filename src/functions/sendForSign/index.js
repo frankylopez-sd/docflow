@@ -19,6 +19,20 @@ module.exports = async function (context, queueItem) {
 
     logger.info('sendForSign-start', { itemId });
 
+    // Duplicate-send guard: queue redelivery / double-approval minted two live
+    // agreements one second apart (2026-08-20). If this card is already out
+    // for signature with an agreement on file, do NOT mint another.
+    const existingAgreement = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.agreementId)
+      .then((v) => (typeof v === 'string' ? v : (v && (v.text || v.value))) || null)
+      .catch(() => null);
+    const rowNow = await monday.readRow(boardId, itemId).catch(() => null);
+    const statusNow = rowNow && rowNow.columns && rowNow.columns[cfg.monday.columns.status];
+    if (existingAgreement && statusNow === cfg.monday.statusLabels.outForSignature) {
+      logger.event('sendForSign-duplicate-skipped', { itemId, existingAgreement });
+      context.res = { status: 200, body: { itemId, skipped: true, reason: 'already out for signature', agreementId: existingAgreement } };
+      return;
+    }
+
     // HR-approval messages carry only {boardId, itemId} — Monday is the
     // database of record, so hydrate the PDF link and hire fields from it.
     if (!pdfUrl) {

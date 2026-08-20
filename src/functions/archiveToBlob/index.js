@@ -45,9 +45,10 @@ async function processArchive(context, queueItem) {
     // Idempotency: Adobe webhooks redeliver and storage queues are
     // at-least-once. If this hire is already complete, the archive ran —
     // exit successfully without duplicating blobs, updates, or BG checks.
-    const current = await monday.readRow(boardId, itemId).catch(() => null);
-    const alreadyDone = (current && current.columns[cfg.monday.columns.status] === cfg.monday.statusLabels.complete)
-      || await monday.hasUpdateContaining(itemId, 'Onboarding paperwork complete').catch(() => false);
+    // Dedupe must be agreement-SPECIFIC: keying on the generic completion
+    // comment wedged cards forever when a second agreement got signed (the
+    // 2026-08-20 "signed but Monday won't update" incident).
+    const alreadyDone = await monday.hasUpdateContaining(itemId, `archived (agreement ${agreementId}`).catch(() => false);
     if (alreadyDone) {
       logger.event('archiveToBlob-already-complete', { itemId, agreementId });
       context.res = { status: 200, body: { itemId, status: 'already complete (idempotent replay)' } };
@@ -127,7 +128,7 @@ async function processArchive(context, queueItem) {
     }
 
     await monday.logAction(itemId,
-      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (see Signed PDF link). Background check opened and linked.${adpLine}`,
+      `✅ Onboarding paperwork complete — all signatures collected, signed offer archived (agreement ${agreementId} — see Signed PDF link). Background check opened and linked.${adpLine}`,
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
