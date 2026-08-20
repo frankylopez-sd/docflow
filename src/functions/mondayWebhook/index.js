@@ -314,8 +314,10 @@ async function handleWebhook(req, mondayRow = null) {
     // hire field is filled, and REBUILDS on any later field edit — so a stale
     // PDF can never be approved. ☑ Generate Docs remains a manual rebuild.
     const hf = cfg.monday.columns;
-    const hireFieldCols = [hf.workEmail, hf.adpJobTitle, hf.adpDepartment, hf.supervisor,
-      hf.payRate, hf.payFrequency, hf.payClass, hf.flsaStatus, hf.workerType, hf.startDate].filter(Boolean);
+    const hireFieldCols = [hf.firstName, hf.lastName, hf.workEmail, hf.adpJobTitle, hf.adpDepartment,
+      hf.supervisor, hf.payRate, hf.payFrequency, hf.payClass, hf.flsaStatus, hf.workerType, hf.startDate,
+      cfg.monday.formSync && cfg.monday.formSync.targetColumns && cfg.monday.formSync.targetColumns.startDate,
+    ].filter(Boolean);
     if (isColumnEvent && event.columnId && hireFieldCols.includes(event.columnId)) {
       const row = mondayRow || await monday.readRow(boardId, itemId).catch(() => null);
       const curStatus = row && row.columns && row.columns[cfg.monday.columns.status];
