@@ -344,6 +344,14 @@ async function handleWebhook(req, mondayRow = null) {
         return { status: 200, body: { ignored: true, reason: 'hire fields not complete yet' }, queueMessage: null, warnings: [] };
       }
       const isRebuild = Boolean(curOffer && curOffer !== cfg.monday.offerLabels.notStarted);
+      // CLAIM the build before queueing. Editing several fields at once fires
+      // one webhook per column; without this claim, every event that lands
+      // after the last field is filled queues its own build (duplicate PDFs
+      // and duplicate preview comments — seen 2026-08-20). Later events read
+      // the Generating label and bail at the check above.
+      await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.generating).catch((err) => {
+        logger.warn('auto-generate-claim-failed', { itemId, error: err.message });
+      });
       logger.event('auto-generate-queued', { itemId, columnId: event.columnId, rebuild: isRebuild });
       await monday.logAction(itemId, isRebuild
         ? `🔁 A hire field changed — rebuilding the offer letter automatically so the draft always matches this card. Fresh checklist + email preview coming in about a minute.`
