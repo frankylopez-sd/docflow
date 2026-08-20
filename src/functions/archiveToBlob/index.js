@@ -88,6 +88,13 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-link-update-failed', { itemId, error: err.message });
     });
 
+    // Attach the signed packet itself — the archive blob is private, so this
+    // is the copy HR can actually open and preview from the card.
+    await monday.attachFile(
+      itemId, cfg.monday.columns.signedFile, signedPdfBuffer,
+      `Signed Packet - ${String(employeeName || 'hire').replace(/-/g, ' ')}.pdf`
+    );
+
     // Final status: ⑦ Onboarding Complete + offer column ⑥ Signed & Archived
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.complete).catch(err => {
       logger.warn('archiveToBlob-final-status-update-failed', { itemId, error: err.message });

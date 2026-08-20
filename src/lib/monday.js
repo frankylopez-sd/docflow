@@ -52,6 +52,43 @@ async function _gql(query, variables = {}, label = 'monday-query') {
   }, { retries: 3, label });
 }
 
+/**
+ * Attach a real file to a Monday file column so HR previews the PDF right on
+ * the card — no expiring SAS link, no storage auth. Safe no-op when the
+ * column isn't configured. Never throws: a failed attachment must not break
+ * the pipeline (the blob link stays as the fallback).
+ * @returns {Promise<{attached:boolean, assetId?:string, reason?:string}>}
+ */
+async function attachFile(itemId, columnId, buffer, fileName) {
+  if (!columnId) return { attached: false, reason: 'file column not configured' };
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return { attached: false, reason: 'empty buffer' };
+  const cfg = config.load();
+  const FormData = require('form-data');
+  const form = new FormData();
+  form.append('query', `mutation ($file: File!) {
+    add_file_to_column (item_id: ${String(itemId)}, column_id: "${columnId}", file: $file) { id }
+  }`);
+  form.append('map', JSON.stringify({ image: 'variables.file' }));
+  form.append('image', buffer, { filename: fileName, contentType: 'application/pdf' });
+
+  try {
+    const res = await axios.post('https://api.monday.com/v2/file', form, {
+      headers: { ...form.getHeaders(), Authorization: cfg.monday.token, 'API-Version': '2024-10' },
+      timeout: 60000,
+      maxBodyLength: Infinity,
+    });
+    if (res.data && res.data.errors && res.data.errors.length) {
+      throw new Error(res.data.errors.map((e) => e.message).join('; '));
+    }
+    const assetId = res.data && res.data.data && res.data.data.add_file_to_column && res.data.data.add_file_to_column.id;
+    logger.event('monday-file-attached', { itemId, columnId, fileName, assetId, bytes: buffer.length });
+    return { attached: true, assetId };
+  } catch (err) {
+    logger.warn('monday-file-attach-failed', { itemId, columnId, fileName, error: err.message });
+    return { attached: false, reason: err.message };
+  }
+}
+
 function _parseColumnValue(cv) {
   // Prefer human text; fall back to parsed JSON value.
   if (cv.text != null && cv.text !== '') return cv.text;
@@ -718,6 +755,7 @@ module.exports = {
   getColumnValueJson,
   updateOfferStatus,
   createBackgroundCheck,
+  attachFile,
   findItemsByName,
   postUpdate,
   logAction,

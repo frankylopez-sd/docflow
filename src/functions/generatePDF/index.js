@@ -181,6 +181,13 @@ async function processGenerate(context, queueItem) {
       logger.warn('generatePDF-link-update-failed', { itemId, error: err.message });
     });
 
+    // Attach the real PDF to the card so HR previews it inline — the storage
+    // link expires in 24h, this copy never does.
+    const attached = await monday.attachFile(
+      itemId, cfg.monday.columns.offerFile, pdfBuffer,
+      `Offer Letter - ${firstName} ${lastName}.pdf`
+    );
+
     // HR review gate: the offer stops here as "Offer Ready". Signing is
     // queued by mondayWebhook only when HR flips the offer status to the
     // approval label ("Packaged Approved").
@@ -200,7 +207,7 @@ async function processGenerate(context, queueItem) {
       + `  ☐ Compensation & frequency right (${payRate} ${payFrequency})\n`
       + `  ☐ Start date right (${startDate})\n`
       + `  ☐ Supervisor right (${supervisor})\n\n`
-      + `📍 Where it lives: this draft is in Azure storage (24h link) · the template came from the team-editable Template Catalog · once signed, the final lives in Adobe Sign AND archives to new-hires/${lastName}-${firstName}.\n\n`
+      + `📍 Where it lives: ${attached.attached ? 'the PDF is attached to this card (click the 📄 Offer Letter column to preview it right here)' : 'the draft is in Azure storage (24h link)'} · the template came from the team-editable Template Catalog · once signed, the final archives to new-hires/${lastName}-${firstName}.\n\n`
       + `Looks good → select "${cfg.monday.offerLabels.approved}" — ONE click sends everything in one go: the signing packet (this letter + every Active packet document on the Template Catalog) goes to Adobe, and the candidate's package email goes out with the direct signing link inside.\n`
       + `Something off → fix the field, re-check "Generate Docs" to regenerate. Or "${cfg.monday.offerLabels.denied}" / "${cfg.monday.offerLabels.moreInfo}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`

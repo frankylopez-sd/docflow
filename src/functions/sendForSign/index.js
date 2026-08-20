@@ -142,6 +142,15 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-agreement-id-update-failed', { itemId, error: err.message });
     });
 
+    // Direct Adobe Sign link for HR (audit trail / resend / cancel). Requires
+    // an Adobe login — this is the internal door, not the candidate's link.
+    if (cfg.monday.columns.agreementLink) {
+      const manageUrl = `${cfg.adobe.signApiUrl.replace('api.', 'secure.')}/public/agreements/#/agreement/${agreementId}`;
+      await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.agreementLink, {
+        url: manageUrl, text: 'Open in Adobe Sign',
+      }).catch((err) => logger.warn('sendForSign-agreement-link-failed', { itemId, error: err.message }));
+    }
+
     // Store signer details
     const signerDetails = signers.map((s, idx) => `${idx + 1}. ${s.name} (${s.email})`).join('\n');
     await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.signerDetails, { text: signerDetails }).catch(err => {

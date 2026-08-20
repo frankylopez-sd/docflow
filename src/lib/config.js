@@ -87,6 +87,11 @@ function load(options = {}) {
         pdfUrl: env.MONDAY_COL_PDF_URL || 'link_pdf',
         signedPdfUrl: env.MONDAY_COL_SIGNED_PDF_URL || 'link_signed',
         sharePointLink: env.MONDAY_COL_SHAREPOINT_LINK || null,
+        // File columns: the real PDFs live on the card and preview inline —
+        // no expiring links, no auth. Null until the columns exist.
+        offerFile: env.MONDAY_COL_OFFER_FILE || null,
+        signedFile: env.MONDAY_COL_SIGNED_FILE || null,
+        agreementLink: env.MONDAY_COL_AGREEMENT_LINK || null,
         signerDetails: env.MONDAY_COL_SIGNER_DETAILS || 'long_text_signers',
         timestamp: env.MONDAY_COL_TIMESTAMP || 'date_updated',
         email: env.MONDAY_COL_EMAIL || 'email',
