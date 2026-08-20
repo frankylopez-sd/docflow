@@ -125,7 +125,7 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     //    signing here.
     const genCtx = makeContext();
     await generatePDF.processGenerate(genCtx, hook.queueMessage);
-    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.docsInProgress });
+    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.awaitingReview });
     expect(backend.rows[555].written[offerCol]).toEqual({ label: offerLabels.ready });
     expect(genCtx.bindings.signQueue).toBeUndefined();
     expect(genCtx.res.status).toBe(200);
@@ -208,7 +208,7 @@ describe('failure recovery', () => {
     installRoutes(axios, backend);
     const retryCtx = makeContext();
     await generatePDF.processGenerate(retryCtx, msg);
-    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.docsInProgress });
+    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.awaitingReview });
     expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: offerLabels.ready });
     expect(backend.rows[555].written.link_pdf.url).toContain('pdf-temp');
     expect(retryCtx.bindings.signQueue).toBeUndefined(); // signing waits for HR approval

@@ -83,8 +83,11 @@ async function processGenerate(context, queueItem) {
       firstName: 'First name', lastName: 'Last name', workEmail: 'Work email',
       adpJobTitle: 'Job title', adpDepartment: 'Department', supervisor: 'Supervisor',
       payRate: 'Pay rate', payFrequency: 'Pay frequency',
+      // Required: without it the letter would print TODAY as the start date —
+      // a wrong date on a signed legal document.
+      startDate: 'Start date',
     };
-    const values = { firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency };
+    const values = { firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, startDate };
     const missingFields = Object.entries(REQUIRED_FOR_LETTER)
       .filter(([key]) => values[key] == null || String(values[key]).trim() === '')
       .map(([, label]) => label);
@@ -124,7 +127,7 @@ async function processGenerate(context, queueItem) {
       supervisor,
       compensation: payRate,
       frequency: payFrequency,
-      startDate: startDate || new Date().toISOString().split('T')[0],
+      startDate,
       generatedDate: new Date().toISOString().split('T')[0],
       // Adobe Sign text tags — Sign converts these into real signature/date
       // fields. Candidate mode: only the hire signs (signer1); serial mode
@@ -183,6 +186,11 @@ async function processGenerate(context, queueItem) {
     // approval label ("Packaged Approved").
     await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.ready).catch(err => {
       logger.warn('generatePDF-offer-ready-update-failed', { itemId, error: err.message });
+    });
+    // The macro status must stop saying "Generating" once the letter exists —
+    // the card is now waiting on a person, and the board should show that.
+    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingReview).catch(err => {
+      logger.warn('generatePDF-awaiting-review-status-failed', { itemId, error: err.message });
     });
 
     await monday.logAction(itemId,

@@ -338,7 +338,7 @@ async function handleWebhook(req, mondayRow = null) {
       }
       const hire = await monday.fetchHireData(boardId, itemId).catch(() => null);
       const complete = hire && [hire.firstName, hire.lastName, hire.workEmail, hire.adpJobTitle,
-        hire.adpDepartment, hire.supervisor, hire.payRate, hire.payFrequency]
+        hire.adpDepartment, hire.supervisor, hire.payRate, hire.payFrequency, hire.startDate]
         .every((v) => v != null && String(v).trim() !== '');
       if (!complete) {
         return { status: 200, body: { ignored: true, reason: 'hire fields not complete yet' }, queueMessage: null, warnings: [] };

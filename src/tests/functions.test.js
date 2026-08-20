@@ -81,7 +81,7 @@ describe('Azure Function entrypoints', () => {
     // at the ready (Review) label until HR flips the offer status to approved.
     const { statusLabels, offerLabels } = config.load().monday;
     expect(ctx.bindings.signQueue).toBeUndefined();
-    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.docsInProgress });
+    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.awaitingReview });
     expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: offerLabels.ready });
     expect(backend.rows[555].written.link_pdf.url).toContain('pdf-temp');
     expect(ctx.res.status).toBe(200);
@@ -397,15 +397,16 @@ describe('generatePDF merge-data contract', () => {
     }
   });
 
-  test('processGenerate defaults startDate to today when absent', async () => {
+  test('processGenerate REFUSES to build when startDate is absent (never prints today)', async () => {
     const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
     try {
       const msg = { ...FULL_HIRE_MSG };
       delete msg.startDate;
-      await generatePDF.processGenerate(makeContext(), msg);
-      const mergeData = spy.mock.calls[0][0];
-      expect(mergeData.startDate).toBe(new Date().toISOString().split('T')[0]);
-      expect(mergeData.generatedDate).toBe(new Date().toISOString().split('T')[0]);
+      const ctx = makeContext();
+      await generatePDF.processGenerate(ctx, msg);
+      expect(spy).not.toHaveBeenCalled();
+      expect(ctx.res.body.generated).toBe(false);
+      expect(ctx.res.body.missingFields).toContain('Start date');
     } finally {
       spy.mockRestore();
     }

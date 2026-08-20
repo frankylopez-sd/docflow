@@ -130,6 +130,7 @@ function load(options = {}) {
         fieldsNeeded: env.MONDAY_STATUS_FIELDS_NEEDED || '③ 👤 Fill',
         docsInProgress: env.MONDAY_STATUS_DOCS || '④ ⚙️ Generating',
         outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ✉️ Sent',
+        awaitingReview: env.MONDAY_STATUS_AWAITING_REVIEW || '④ 👤 Review',
         archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
         complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Done',
         missingFields: env.MONDAY_STATUS_MISSING || 'Missing Required Fields',
@@ -293,7 +294,7 @@ function load(options = {}) {
   const sl = cfg.monday.statusLabels;
   cfg.monday.statusOrder = [
     sl.welcome, sl.awaitingInfo, sl.fieldsNeeded, sl.docsInProgress,
-    sl.outForSignature, sl.archiving, sl.complete,
+    sl.awaitingReview, sl.outForSignature, sl.archiving, sl.complete,
   ];
   const ol = cfg.monday.offerLabels;
   cfg.monday.offerOrder = [
