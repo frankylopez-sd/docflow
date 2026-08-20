@@ -180,7 +180,7 @@ async function handleWebhook(req, mondayRow = null) {
     const hireName = event.pulseName || event.itemName || '';
     await monday.logAction(itemId,
       `👋 Welcome packet queued — ${hireName || 'this hire'} will get ONE welcome email with everything in it (form + signing link) the moment you approve the offer.\n\n`
-      + `YOUR MOVE: fill the employer fields on this card, then check ☑ Generate Docs. You'll get the letter AND the exact email text to review before anything is sent.`
+      + `YOUR MOVE: just fill the employer fields on this card — the letter builds itself the moment they're complete, and you'll get the letter AND the exact email text to review before anything is sent. (☑ Generate Docs still works as a manual rebuild.)`
     ).catch((err) => logger.warn('monday-webhook-welcome-post-failed', { itemId, error: err.message }));
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.awaitingInfo).catch((err) => {
       logger.warn('monday-webhook-welcome-status-failed', { itemId, error: err.message });
@@ -310,6 +310,55 @@ async function handleWebhook(req, mondayRow = null) {
   const checked = event.value && (event.value.checked === true || event.value.checked === 'true');
 
   if (!isColumnEvent || !isTriggerColumn || !checked) {
+    // AUTO-GENERATE: the letter builds itself the moment the last required
+    // hire field is filled, and REBUILDS on any later field edit — so a stale
+    // PDF can never be approved. ☑ Generate Docs remains a manual rebuild.
+    const hf = cfg.monday.columns;
+    const hireFieldCols = [hf.workEmail, hf.adpJobTitle, hf.adpDepartment, hf.supervisor,
+      hf.payRate, hf.payFrequency, hf.payClass, hf.flsaStatus, hf.workerType, hf.startDate].filter(Boolean);
+    if (isColumnEvent && event.columnId && hireFieldCols.includes(event.columnId)) {
+      const row = mondayRow || await monday.readRow(boardId, itemId).catch(() => null);
+      const curStatus = row && row.columns && row.columns[cfg.monday.columns.status];
+      const curOffer = row && row.columns && row.columns[cfg.monday.columns.offerStatus];
+      if (curStatus === cfg.monday.statusLabels.complete || curStatus === cfg.monday.statusLabels.archiving) {
+        return { status: 200, body: { ignored: true, reason: 'field edit on completed hire' }, queueMessage: null, warnings: [] };
+      }
+      if (curStatus === cfg.monday.statusLabels.outForSignature) {
+        await monday.logAction(itemId,
+          `ℹ️ Heads-up: a hire field just changed while the packet is out for signature — the document the candidate is signing does NOT update itself. If the change matters, set the package status to "${cfg.monday.offerLabels.moreInfo}", fix the fields, and re-approve to send a corrected packet.`
+        ).catch(() => {});
+        return { status: 200, body: { ignored: true, reason: 'field edit while out for signature (narrated)' }, queueMessage: null, warnings: [] };
+      }
+      if (curOffer === cfg.monday.offerLabels.generating) {
+        // A build is running right now; it hydrates from the board at build
+        // time, so this very edit is already included. No second run needed.
+        return { status: 200, body: { ignored: true, reason: 'build already in progress' }, queueMessage: null, warnings: [] };
+      }
+      const hire = await monday.fetchHireData(boardId, itemId).catch(() => null);
+      const complete = hire && [hire.firstName, hire.lastName, hire.workEmail, hire.adpJobTitle,
+        hire.adpDepartment, hire.supervisor, hire.payRate, hire.payFrequency]
+        .every((v) => v != null && String(v).trim() !== '');
+      if (!complete) {
+        return { status: 200, body: { ignored: true, reason: 'hire fields not complete yet' }, queueMessage: null, warnings: [] };
+      }
+      const isRebuild = Boolean(curOffer && curOffer !== cfg.monday.offerLabels.notStarted);
+      logger.event('auto-generate-queued', { itemId, columnId: event.columnId, rebuild: isRebuild });
+      await monday.logAction(itemId, isRebuild
+        ? `🔁 A hire field changed — rebuilding the offer letter automatically so the draft always matches this card. Fresh checklist + email preview coming in about a minute.`
+        : `🛠️ All required fields are filled — building the offer letter automatically. Review checklist + email preview land here in about a minute. (☑ Generate Docs still works as a manual rebuild.)`
+      ).catch(() => {});
+      return {
+        status: 200,
+        body: { queued: true, auto: true, itemId: String(itemId) },
+        queueMessage: {
+          boardId: String(boardId),
+          itemId: String(itemId),
+          eventType: 'auto-field-complete',
+          receivedAt: new Date().toISOString(),
+        },
+        warnings: [],
+      };
+    }
     logger.debug('monday-webhook-ignored', {
       itemId,
       eventType: event.type,

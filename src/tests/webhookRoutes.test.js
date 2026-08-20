@@ -52,6 +52,40 @@ describe('mondayWebhook routing', () => {
     expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.awaitingInfo });
   });
 
+  test('auto-generate: hire-field edit with all required fields queues a build', async () => {
+    const ctx = makeContext();
+    const res = await mondayWebhook.handleWebhook(eventReq({
+      type: 'update_column_value', boardId: '111', pulseId: 555,
+      columnId: 'numeric_mm65mx3m', value: { value: '68000' },
+    }));
+    expect(res.status).toBe(200);
+    expect(res.body.auto).toBe(true);
+    expect(res.queueMessage).toMatchObject({ boardId: '111', itemId: '555', eventType: 'auto-field-complete' });
+    const updates = backend.updates.filter((u) => u.itemId === '555');
+    expect(updates[updates.length - 1].body).toMatch(/automatically/);
+  });
+
+  test('auto-generate: field edit while out for signature narrates and queues nothing', async () => {
+    const cfg = config.load();
+    backend.rows[555].written.status = { label: cfg.monday.statusLabels.outForSignature };
+    const res = await mondayWebhook.handleWebhook(eventReq({
+      type: 'update_column_value', boardId: '111', pulseId: 555,
+      columnId: 'numeric_mm65mx3m', value: { value: '68000' },
+    }));
+    expect(res.queueMessage).toBeNull();
+    const updates = backend.updates.filter((u) => u.itemId === '555');
+    expect(updates[updates.length - 1].body).toContain('out for signature');
+  });
+
+  test('auto-generate: non-hire column edits stay ignored', async () => {
+    const res = await mondayWebhook.handleWebhook(eventReq({
+      type: 'update_column_value', boardId: '111', pulseId: 555,
+      columnId: 'text_template', value: { value: 'x' },
+    }));
+    expect(res.body.ignored).toBe(true);
+    expect(res.queueMessage).toBeNull();
+  });
+
   test('offer status "Denied" is documented and queues nothing', async () => {
     const cfg = config.load();
     const ctx = makeContext();
