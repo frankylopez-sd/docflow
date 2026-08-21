@@ -99,10 +99,10 @@ async function handleAtsSync(req) {
     if (!atsEmail || !existing) exact = exact || m;                            // can't tell — reuse, but warn
   }
   if (sameName.length > 0 && !exact) {
-    namesakeWarning = `⚠️ HEADS UP — another hire on this board is also named "${candidateName}", but with a different email address. This is a SEPARATE new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\nBefore you go further: confirm you're working on the right card. Both cards will look identical in lists — tell them apart by Personal Email.`;
+    namesakeWarning = `⚠️ Heads up — another hire on this board is also named "${candidateName}", but with a different email address. This is a separate new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\nNEXT: confirm you're working on the right card before going further. Both cards will look identical in lists — tell them apart by Personal Email.`;
   } else if (exact && sameName.length > 1) {
     // Several cards carry this name — say which one we touched and why.
-    namesakeWarning = `⚠️ HEADS UP — ${sameName.length} cards on this board are named "${candidateName}". This ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\nDouble-check you're on the right card before approving anything — in lists they look identical; Personal Email is what tells them apart.`;
+    namesakeWarning = `⚠️ Heads up — ${sameName.length} cards on this board are named "${candidateName}". This ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\nNEXT: double-check you're on the right card before approving anything — in lists they look identical; Personal Email is what tells them apart.`;
   }
 
   const roleColumns = {

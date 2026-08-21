@@ -138,8 +138,8 @@ async function processArchive(context, queueItem) {
     try {
       const readiness = await monday.adpReadiness(boardId, itemId);
       adpLine = readiness.complete
-        ? `\n\n🟢 ADP handoff: all ${readiness.total} required fields are filled — ready for user creation.`
-        : `\n\n🟡 ADP handoff: ${readiness.filled}/${readiness.total} required fields filled. Missing: ${readiness.missing.join(', ')}.`;
+        ? `\n\n✅ ADP handoff: all ${readiness.total} required fields are filled — ready for user creation.`
+        : `\n\n✋ ADP handoff: ${readiness.filled}/${readiness.total} required fields filled. Missing: ${readiness.missing.join(', ')}.`;
     } catch (err) {
       logger.warn('archiveToBlob-adp-readiness-failed', { itemId, error: err.message });
     }
@@ -151,13 +151,13 @@ async function processArchive(context, queueItem) {
 
     // Post manual-steps checklist on Done status
     await monday.logAction(itemId,
-      `\n📋 **Next steps (manual):**\n`
-      + `1. Background check — order from vendor (Checkr/Sterling)\n`
-      + `2. ADP profile — create user account in ADP\n`
-      + `3. IT provisioning — email credentials, create Slack account, set up device\n`
-      + `4. TalentLMS enrollment — add to training courses\n`
-      + `5. Active Employees — add hire to the roster\n\n`
-      + `This card is DONE. Check the Signed PDF and agreement links above, then forward to your team.`
+      `📋 NEXT STEPS (manual):\n`
+      + `    1. Background check — order from vendor (Checkr/Sterling)\n`
+      + `    2. ADP profile — create user account in ADP\n`
+      + `    3. IT provisioning — email credentials, create Slack account, set up device\n`
+      + `    4. TalentLMS enrollment — add to training courses\n`
+      + `    5. Active Employees — add hire to the roster\n\n`
+      + `This card is "${cfg.monday.statusLabels.complete}". Check the Signed PDF and agreement links above, then forward to your team.`
     ).catch(err => logger.warn('archiveToBlob-next-steps-failed', { itemId, error: err.message }));
 
     // Congrats email: the candidate's own copy of the fully-signed letter,
@@ -206,7 +206,7 @@ async function processArchive(context, queueItem) {
 
     // Update Monday: status → "Archive Error" (only when we know which item)
     if (itemId) {
-      await monday.updateItemStatus(boardId, itemId, 'Archive Error').catch(() => {});
+      await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.archiveFailed).catch(() => {});
     }
 
     throw error;

@@ -78,14 +78,14 @@ async function handleFormSync(req) {
   if (matches.length === 0) {
     logger.warn('formSync-no-hire-match', { candidateName, formItemId: itemId });
     await monday.postUpdate(itemId,
-      `⚠️ Form sync: no matching hire named "${candidateName}" found on the Onboarding board. Link this submission manually.`
+      `⚠️ Form sync: no matching hire named "${candidateName}" found on the Onboarding board — nothing was synced.\n\nNEXT: link this submission to the right hire manually.`
     ).catch(() => {});
     return { status: 200, body: { synced: false, reason: 'no matching hire', candidateName } };
   }
   if (matches.length > 1) {
     logger.warn('formSync-ambiguous-hire-match', { candidateName, count: matches.length });
     await monday.postUpdate(itemId,
-      `⚠️ Form sync: ${matches.length} hires match "${candidateName}" on the Onboarding board — not syncing automatically. Resolve manually.`
+      `⚠️ Form sync: ${matches.length} hires match "${candidateName}" on the Onboarding board — not syncing automatically.\n\nNEXT: pick the correct hire card and copy the form details over manually.`
     ).catch(() => {});
     return { status: 200, body: { synced: false, reason: 'ambiguous match', candidateName } };
   }
@@ -144,9 +144,9 @@ async function handleFormSync(req) {
   // Visible trail on the hire record (notifies subscribers)
   const notes = get(fc.notes);
   await monday.logAction(hireId,
-    `📥 Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record. `
-    + `YOUR MOVE: fill the remaining ADP fields, then check "Details Verified".`
-    + (notes ? `\n\nCandidate notes: ${notes}` : ''),
+    `📥 Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
+    + (notes ? `\n\nCandidate notes: ${notes}` : '')
+    + `\n\nNEXT: fill the remaining ADP fields, then check ☑ Details Verified.`,
     `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to step ③.`
   ).catch((err) => logger.warn('formSync-update-post-failed', { hireId, error: err.message }));
 

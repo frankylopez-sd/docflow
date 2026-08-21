@@ -20,11 +20,11 @@ const REQUIRED_FIELDS = [
   'benefitsEligibility', 'benefitsEligibilityClass', 'onboardingExperience'
 ];
 
-const STATUS_VALID = 'Create New Hire';
-const STATUS_INVALID = 'Missing Required Fields';
-
 module.exports = async function (context, req) {
   const cfg = config.load();
+  const labels = (cfg.monday && cfg.monday.statusLabels) || {};
+  const STATUS_VALID = labels.createNewHire || 'Create New Hire';
+  const STATUS_INVALID = labels.missingFields || 'Missing Required Fields';
 
   try {
     const { boardId, itemId, ...hireData } = req.body;
@@ -71,8 +71,8 @@ module.exports = async function (context, req) {
       try {
         await monday.logAction(itemId,
           `✋ ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
-          + missing.map((f) => `  • ${friendly(f)}`).join('\n')
-          + `\n\nFill ${missing.length === 1 ? 'it' : 'them'} in on this card and the validation will pass on the next check.`
+          + missing.map((f) => `    ${friendly(f)}`).join('\n')
+          + `\n\nNEXT: fill ${missing.length === 1 ? 'it' : 'them'} in on this card and the validation will pass on the next check.`
         );
       } catch (_) { /* comment is best-effort — validation result stands */ }
     }

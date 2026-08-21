@@ -99,7 +99,7 @@ async function processGenerate(context, queueItem) {
       await monday.logAction(itemId,
         `✋ ${missingFields.length === 1 ? 'One field is' : `${missingFields.length} fields are`} still empty:\n`
         + missingFields.map((f) => `    ${f}`).join('\n')
-        + `\n\nFill ${missingFields.length === 1 ? 'it' : 'them'} in, then check ☑ Details Verified. The letter builds right away.`
+        + `\n\nNEXT: fill ${missingFields.length === 1 ? 'it' : 'them'} in, then check ☑ Details Verified. The letter builds right away.`
       ).catch(() => {});
       context.res = { status: 200, body: { itemId, generated: false, missingFields } };
       return; // no throw — retries can't fill in fields, a person can
@@ -221,7 +221,7 @@ async function processGenerate(context, queueItem) {
       + `    Pay — ${payRate} ${payFrequency}\n`
       + `    Start — ${startDate}\n`
       + `    Supervisor — ${supervisor}\n\n`
-      + `All correct → select "${cfg.monday.offerLabels.approved}". That builds the signing packet and shows you the exact email. Nothing sends yet.\n`
+      + `NEXT: all correct → select "${cfg.monday.offerLabels.approved}". That builds the signing packet and shows you the exact email. Nothing sends yet.\n`
       + `Something off → fix the field; the letter rebuilds itself. Or "${cfg.monday.offerLabels.denied}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
@@ -244,11 +244,11 @@ async function processGenerate(context, queueItem) {
         + `2. Fill out your info form ({{formLink}}) — 3 minutes\n\n`
         + `Once both are done, we'll send your day-one details.\n\n`
         + `Questions? Reply here anytime.\n\n`
-        + `MedWatchers HR`, previewFill);
+        + `The MedWatchers HR Team`, previewFill);
       await monday.logAction(itemId,
         `📧 ${firstName} will receive this. Preview only — not sent.\n\n`
         + `— — — — — — — — — —\nSubject: ${pvSubject}\n\n${pvBody}\n— — — — — — — — — —\n\n`
-        + `To change the wording: edit the "package" row on the Email Templates board.`
+        + `NEXT: looks right → select "${cfg.monday.offerLabels.approved}". To change the wording, edit the "package" row on the Email Templates board.`
       ).catch(() => {});
     } catch (err) {
       logger.warn('generatePDF-email-preview-failed', { itemId, error: err.message });
@@ -280,7 +280,7 @@ async function processGenerate(context, queueItem) {
       await monday.logAction(queueItem.itemId,
         `❌ Offer letter generation failed.\n\n`
         + `SYSTEM: ${system}\n`
-        + `EXACT ERROR: ${error.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
+        + `ERROR: ${error.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
         + `FIX: address the cause above, then re-check ☑ Details Verified. (The system also retries automatically.)`
       ).catch(() => {});
     }

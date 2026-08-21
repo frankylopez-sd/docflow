@@ -77,9 +77,8 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     armGraphMail(); // armed on purpose: prep must still not send
     await sendForSign(makeContext(), signQueueItem());
 
-    const pkg = backend.updates.find((u) => u.body.includes('THE EXACT EMAIL'));
+    const pkg = backend.updates.find((u) => u.body.includes('Preview only — not sent'));
     expect(pkg).toBeDefined();
-    expect(pkg.body).toContain('Nothing has been sent yet');
     expect(pkg.body).toContain(ESIGN_URL);
     expect(pkg.body).toContain('Fill out your info form');
     expect(graphSendCalls()).toHaveLength(0);

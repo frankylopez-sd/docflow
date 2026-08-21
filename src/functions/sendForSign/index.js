@@ -90,9 +90,9 @@ module.exports = async function (context, queueItem) {
     if (existingAgreement && statusNow === cfg.monday.statusLabels.outForSignature) {
       logger.event('sendForSign-duplicate-skipped', { itemId, existingAgreement });
       await monday.logAction(itemId,
-        `ℹ️ Nothing to rebuild — this packet was already built AND sent to the candidate, so approving again does nothing (that's on purpose: it would put a second signing packet in their inbox).\n\n`
-        + `Agreement on file: ${existingAgreement}\n\n`
-        + `Need to send a corrected packet? Select "${cfg.monday.offerLabels.moreInfo}" first, fix the fields (the letter rebuilds itself), then approve again.`
+        `ℹ️ Nothing to rebuild — approving again does nothing (that's on purpose).\n\n`
+        + `WHY: status is "${cfg.monday.statusLabels.outForSignature}" and this packet was already built AND sent — agreement on file: ${existingAgreement}. Building again would put a SECOND signing packet in the candidate's inbox.\n\n`
+        + `NEXT: need to send a corrected packet? Select "${cfg.monday.offerLabels.moreInfo}" first, fix the fields (the letter rebuilds itself), then approve again.`
       ).catch(() => {});
       context.res = { status: 200, body: { itemId, skipped: true, reason: 'already out for signature', agreementId: existingAgreement } };
       return;
@@ -200,11 +200,11 @@ module.exports = async function (context, queueItem) {
     });
 
     const packetLine = packetDocs.length
-      ? `\n\n📑 In the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
+      ? `\n\nIn the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
       : '';
     await monday.logAction(itemId,
       `📦 The packet is built. Signing order: ${signers.map(s => s.name).join(' → ')}.${packetLine}\n\n`
-      + `Read the email below. Looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes to ${firstName}.\n`
+      + `NEXT: read the email below. Looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes to ${firstName}.\n`
       + `Something off → "${cfg.monday.offerLabels.moreInfo}"; fix the field and the letter rebuilds itself.`,
       `Adobe Sign agreement ${agreementId} created with ${signers.length} signer(s) and ${1 + packetDocs.length} document(s); no candidate email sent (awaiting the ⑤ Send Package gate).`
     ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
@@ -260,8 +260,8 @@ module.exports = async function (context, queueItem) {
       await monday.logAction(queueItem.itemId,
         `❌ Sending for signature failed.\n\n`
         + `SYSTEM: ${system}\n`
-        + `EXACT ERROR: ${error.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
-        + `FIX: ${fix}\n\n(The system also retries automatically.)`
+        + `ERROR: ${error.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — API body: ${apiBody}` : ''}\n\n`
+        + `FIX: ${fix} (The system also retries automatically.)`
       ).catch(() => {});
     }
 
@@ -285,7 +285,9 @@ async function deliverPackage(cfg, opts) {
   const signLink = await adobe.getSigningUrl(agreementId, { attempts: 10, delayMs: 2000 }).catch(() => null);
   if (!signLink) {
     await monday.logAction(itemId,
-      `⚠️ Heads-up: Adobe hasn't issued the direct signing link yet, and Adobe's own emails are turned off — so the candidate would have NO way in. Wait a minute and re-select "${cfg.monday.offerLabels.approved}" to retry, or grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it by hand.`
+      `⚠️ Adobe hasn't issued the candidate's direct signing link yet.\n\n`
+      + `WHY: Adobe's own emails are turned off — our link is the only door, so without it the candidate has NO way in.\n\n`
+      + `NEXT: wait a minute and re-select "${cfg.monday.offerLabels.approved}" to retry, or grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it by hand.`
     ).catch(() => {});
   }
 
@@ -303,7 +305,7 @@ async function deliverPackage(cfg, opts) {
     + `2. Fill out your info form ({{formLink}}) — 3 minutes\n\n`
     + `Once both are done, we'll send your day-one details.\n\n`
     + `Questions? Reply here anytime.\n\n`
-    + `MedWatchers HR`, fill);
+    + `The MedWatchers HR Team`, fill);
 
   let sentTo = null;
   if (!draftOnly && mailer.isConfigured()) {
@@ -320,13 +322,13 @@ async function deliverPackage(cfg, opts) {
   }
 
   const block = `— — — — — — — — — —\nSubject: ${subject}\n\n${body}\n— — — — — — — — — —`;
-  const reference = `\n\n🔗 For HR reference (do not forward): offer PDF (PDF Document column) · agreement ${agreementId} · this card: ${cardLink}`;
+  const reference = `\n\nFor HR reference (do not forward): offer PDF (PDF Document column) · agreement ${agreementId} · this card: ${cardLink}`;
   const headline = sentTo
     ? `📤 Sent! ${firstName}'s welcome package went to ${sentTo} just now. Copy for the record:\n\n`
     : draftOnly
-      ? `📧 THE EXACT EMAIL — this is what ${firstName} receives the moment you select "${cfg.monday.offerLabels.sendPackage}". Nothing has been sent yet:\n\n`
+      ? `📧 ${firstName} will receive this the moment you select "${cfg.monday.offerLabels.sendPackage}". Preview only — not sent:\n\n`
       : `📦 Ready to send to ${firstName} — auto-send is off, so copy this into Outlook and send it yourself:\n\n`;
-  await monday.logAction(itemId, `${headline}${block}${reference}`)
+  await monday.logAction(itemId, `${headline}${block}${reference}${sentTo ? `\n\nNEXT: nothing for you — ${firstName} signs from that email, and the machine posts here the moment the signed packet lands.` : draftOnly ? '' : `\n\nNEXT: copy the draft above into Outlook and send it to ${firstName} yourself — the machine takes over once they sign.`}`)
     .catch((err) => logger.warn('sendForSign-package-notify-failed', { itemId, error: err.message }));
 
   return { sentTo, signLink };

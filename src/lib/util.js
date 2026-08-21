@@ -102,7 +102,7 @@ function startProgress(post, state, intervalMs = 30000) {
   const timer = setInterval(() => {
     if (stopped) return;
     const secs = Math.round((Date.now() - startedAt) / 1000);
-    Promise.resolve(post(`⏳ ${secs}s — ${state.phase}.`)).catch(() => {});
+    Promise.resolve(post(`🛠️ ${secs}s — ${state.phase}.`)).catch(() => {});
   }, intervalMs);
   if (timer && typeof timer.unref === 'function') timer.unref(); // never hold the process open
   return {

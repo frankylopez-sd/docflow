@@ -184,9 +184,9 @@ async function processSharePointUpload(msg) {
       const apiBody = err.response && err.response.data ? JSON.stringify(err.response.data).slice(0, 300) : null;
       try {
         await monday.logAction(itemId,
-          `⚠️ SharePoint copy failed (the signed offer is still safe — see the Signed PDF link).\n\n`
-          + `SYSTEM: SharePoint (Graph upload)\nEXACT ERROR: ${err.message}${httpCode ? `\nHTTP CODE: ${httpCode}` : ''}${apiBody ? `\nAPI RESPONSE: ${apiBody}` : ''}\n\n`
-          + `FIX: the system retries automatically; if this message repeats, escalate to IT with this card link.`
+          `❌ SharePoint copy failed. The signed offer is still safe — see the Signed PDF link on this card.\n\n`
+          + `SYSTEM: SharePoint (Graph upload)\nERROR: ${err.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
+          + `FIX: nothing to do right now — the system retries automatically. If this message repeats, escalate to IT with this card link.`
         );
       } catch (inner) { logger.error('sharepoint-error-comment-failed', inner, { itemId }); }
     }

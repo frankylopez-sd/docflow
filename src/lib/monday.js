@@ -258,8 +258,7 @@ function ptTimestamp() {
 async function logAction(itemId, plain, technical) {
   // Comments stay warm and human — the technical detail goes to telemetry only.
   if (technical) logger.event('action-technical-detail', { itemId, technical });
-  const body = `🕐 ${ptTimestamp()}\n${plain}`;
-  return postUpdate(itemId, body);
+  return postUpdate(itemId, plain);
 }
 
 /**

@@ -145,8 +145,10 @@ function load(options = {}) {
         archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
         complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Done',
         missingFields: env.MONDAY_STATUS_MISSING || 'Missing Required Fields',
+        createNewHire: env.MONDAY_STATUS_CREATE_NEW_HIRE || 'Create New Hire',
         pdfFailed: env.MONDAY_STATUS_PDF_FAILED || '❌ PDF Failed',
         signFailed: env.MONDAY_STATUS_SIGN_FAILED || '❌ Sign Failed',
+        archiveFailed: env.MONDAY_STATUS_ARCHIVE_FAILED || '❌ Archive Failed',
       },
       // Ordered journeys (drive the status-narrator comments).
       // Derived below from the label objects so env overrides can never
