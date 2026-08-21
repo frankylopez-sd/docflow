@@ -55,6 +55,16 @@ async function processArchive(context, queueItem) {
       return;
     }
 
+    // Additional guard: check if status is ALREADY done/complete before re-running
+    const currentStatus = await monday.readRow(boardId, itemId).then(r =>
+      r.columns[cfg.monday.columns.status] || r.byTitle['Onboarding Status']
+    ).catch(() => null);
+    if (currentStatus && /done|complete|signed|archived/i.test(String(currentStatus))) {
+      logger.event('archiveToBlob-status-already-complete', { itemId, agreementId, currentStatus });
+      context.res = { status: 200, body: { itemId, status: 'status already final (skipping duplicate)' } };
+      return;
+    }
+
     // Update Monday: status → ⑥ Archiving
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.archiving).catch(err => {
       logger.warn('archiveToBlob-status-update-failed', { itemId, error: err.message });
@@ -138,6 +148,17 @@ async function processArchive(context, queueItem) {
       `✅ Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}`,
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
+
+    // Post manual-steps checklist on Done status
+    await monday.logAction(itemId,
+      `\n📋 **Next steps (manual):**\n`
+      + `1. Background check — order from vendor (Checkr/Sterling)\n`
+      + `2. ADP profile — create user account in ADP\n`
+      + `3. IT provisioning — email credentials, create Slack account, set up device\n`
+      + `4. TalentLMS enrollment — add to training courses\n`
+      + `5. Active Employees — add hire to the roster\n\n`
+      + `This card is DONE. Check the Signed PDF and agreement links above, then forward to your team.`
+    ).catch(err => logger.warn('archiveToBlob-next-steps-failed', { itemId, error: err.message }));
 
     // Congrats email: the candidate's own copy of the fully-signed letter,
     // attached — their whole record in one place. Only fires when Graph mail

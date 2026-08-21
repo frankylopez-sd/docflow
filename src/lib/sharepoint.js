@@ -12,13 +12,22 @@
 const axios = require('axios');
 const config = require('./config');
 const logger = require('./logger');
-const { retry, sleep } = require('./util');
+const { retry, sleep, RateLimiter } = require('./util');
 
 const DEFAULT_GRAPH_URL = 'https://graph.microsoft.com/v1.0';
 const TOKEN_CACHE_TTL_MS = 3600 * 1000; // 1 hour
 
 let _tokenCache = null;
 let _tokenCacheTime = 0;
+let _graphLimiter = null;
+
+function _limiter() {
+  if (!_graphLimiter) {
+    // Graph has a default 10 requests per second per app. Be conservative: 5/sec
+    _graphLimiter = new RateLimiter(5, 1000, 'graph-sharepoint');
+  }
+  return _graphLimiter;
+}
 
 /**
  * Acquire AAD access token. Supports three auth methods:
@@ -98,6 +107,7 @@ async function getAccessToken() {
 async function graphRequest(method, path, data = null, opts = {}) {
   const token = await getAccessToken();
   const url = `${DEFAULT_GRAPH_URL}${path}`;
+  await _limiter().acquire(); // Rate limit before each Graph API call
 
   const req = async (attempt) => {
     try {

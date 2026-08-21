@@ -81,7 +81,7 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     expect(pkg).toBeDefined();
     expect(pkg.body).toContain('Nothing has been sent yet');
     expect(pkg.body).toContain(ESIGN_URL);
-    expect(pkg.body).toContain('Fill out your quick info form');
+    expect(pkg.body).toContain('Fill out your info form');
     expect(graphSendCalls()).toHaveLength(0);
   });
 

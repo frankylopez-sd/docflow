@@ -298,12 +298,12 @@ async function deliverPackage(cfg, opts) {
   const subject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}} — everything you need is right here! 🎉', fill);
   const body = mailer.renderTemplate((tpl && tpl.body)
     || `Hi {{firstName}},\n\n`
-    + `Congratulations and welcome to the MedWatchers family! Everything you need to make it official is in this one email:\n\n`
-    + `1️⃣ Sign your offer packet (offer letter + onboarding documents, one sitting, under 2 minutes):\n{{signLink}}\n\n`
-    + `2️⃣ Fill out your quick info form (3 minutes — contact info, emergency contact, start availability):\n{{formLink}}\n\n`
-    + `That's it! Once both are done we'll confirm by email and get your first day ready.\n\n`
-    + `Questions anytime — just reply here. We can't wait!\n\n`
-    + `Warmly,\nThe MedWatchers HR Team`, fill);
+    + `Congratulations! Welcome to MedWatchers. Here's what's next:\n\n`
+    + `1. Sign your offer packet ({{signLink}}) — under 2 minutes\n`
+    + `2. Fill out your info form ({{formLink}}) — 3 minutes\n\n`
+    + `Once both are done, we'll send your day-one details.\n\n`
+    + `Questions? Reply here anytime.\n\n`
+    + `MedWatchers HR`, fill);
 
   let sentTo = null;
   if (!draftOnly && mailer.isConfigured()) {
