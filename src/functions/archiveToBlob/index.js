@@ -48,26 +48,12 @@ async function processArchive(context, queueItem) {
     // Dedupe must be agreement-SPECIFIC: keying on the generic completion
     // comment wedged cards forever when a second agreement got signed (the
     // 2026-08-20 "signed but Monday won't update" incident).
-    // Adobe fires TWO terminal events on completion (AGREEMENT_WORKFLOW_COMPLETED
-    // and AGREEMENT_ACTION_COMPLETED_ALL), ~1s apart, so adobeWebhook enqueues
-    // two archive messages that run concurrently. The old check looked only for
-    // the FINAL "archived (agreement X)" marker, which neither run has posted
-    // yet at start — so both passed and both archived + double-emailed the
-    // candidate (2026-08-20). Fix: also honor an EARLY claim posted before the
-    // slow work, so the second run sees it and bails.
-    const doneMarker = `archived (agreement ${agreementId}`;
-    const claimMarker = `Finalizing agreement ${agreementId}`;
-    const alreadyDone = await monday.hasUpdateContaining(itemId, doneMarker).catch(() => false);
-    const alreadyClaimed = await monday.hasUpdateContaining(itemId, claimMarker).catch(() => false);
-    if (alreadyDone || alreadyClaimed) {
-      logger.event('archiveToBlob-already-complete', { itemId, agreementId, alreadyDone, alreadyClaimed });
+    const alreadyDone = await monday.hasUpdateContaining(itemId, `archived (agreement ${agreementId}`).catch(() => false);
+    if (alreadyDone) {
+      logger.event('archiveToBlob-already-complete', { itemId, agreementId });
       context.res = { status: 200, body: { itemId, status: 'already complete (idempotent replay)' } };
       return;
     }
-    // Claim immediately, before any slow work — this is the dedup marker the
-    // concurrent sibling checks for above. Window shrinks from seconds to one
-    // API round-trip.
-    await monday.logAction(itemId, `🔐 Finalizing agreement ${agreementId} — filing the signed packet now.`).catch(() => {});
 
     // Update Monday: status → ⑥ Archiving
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.archiving).catch(err => {
@@ -158,10 +144,7 @@ async function processArchive(context, queueItem) {
     // is armed; an attachment here is safe (executed copy, nothing revocable).
     try {
       const mailer = require('../../lib/mailer');
-      // Last-line dedup: even if two runs raced past the claim above, never
-      // send the candidate a second "signed copy" confirmation.
-      const congratsAlreadySent = await monday.hasUpdateContaining(itemId, 'Confirmation sent to').catch(() => false);
-      if (mailer.isConfigured() && !congratsAlreadySent) {
+      if (mailer.isConfigured()) {
         const row = await monday.readRow(boardId, itemId).catch(() => null);
         const rawTo = row && (row.columns[cfg.monday.formSync.targetColumns.personalEmail]
           || row.columns[cfg.monday.columns.workEmail]);
