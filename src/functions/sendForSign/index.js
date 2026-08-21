@@ -15,6 +15,14 @@ const { startProgress } = require('../../lib/util');
 module.exports = async function (context, queueItem) {
   const cfg = config.load();
 
+  // Tracked so the catch can always stop them. A progress timer is created
+  // with setInterval().unref(), so it does NOT die with the invocation — if an
+  // op throws between "start" and its finally, the timer leaks and posts
+  // "⏳ Ns …" forever (2026-08-20 runaway progress). Stopping in the catch too
+  // guarantees cleanup on every path.
+  let progress = null;
+  let sendProgress = null;
+
   try {
     let { boardId, itemId, pdfUrl, firstName, lastName, workEmail, supervisor } = queueItem;
 
@@ -46,8 +54,19 @@ module.exports = async function (context, queueItem) {
       if (!existingAgreement) {
         throw new Error(`sendForSign: no Adobe agreement on item ${itemId} — select "${cfg.monday.offerLabels.approved}" first to build the packet.`);
       }
+      // Idempotency: the docflow-sign queue is at-least-once, and a hung
+      // invocation gets its message redelivered after the visibility timeout.
+      // Without this guard the candidate is emailed a SECOND welcome packet
+      // with a SECOND signing link (2026-08-20 duplicate-send incident). If we
+      // already advanced past the send, this is a replay — exit cleanly.
+      const offerNow = rowNow && rowNow.columns && rowNow.columns[cfg.monday.columns.offerStatus];
+      if (offerNow === cfg.monday.offerLabels.sent || statusNow === cfg.monday.statusLabels.outForSignature) {
+        logger.event('sendForSign-send-duplicate-skipped', { itemId, existingAgreement, offerNow, statusNow });
+        context.res = { status: 200, body: { itemId, skipped: true, reason: 'already sent (idempotent replay)', agreementId: existingAgreement } };
+        return;
+      }
       await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sendingEmail).catch(() => {});
-      const sendProgress = startProgress((t) => monday.logAction(itemId, t), { phase: 'fetching the signing link from Adobe, then emailing the candidate' });
+      sendProgress = startProgress((t) => monday.logAction(itemId, t), { phase: 'fetching the signing link from Adobe, then emailing the candidate' });
       let delivered;
       try {
         delivered = await deliverPackage(cfg, {
@@ -114,7 +133,7 @@ module.exports = async function (context, queueItem) {
     await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.creatingPackage).catch((err) => {
       logger.warn('sendForSign-creating-status-failed', { itemId, error: err.message });
     });
-    const progress = startProgress((t) => monday.logAction(itemId, t), { phase: 'reading the hire record and re-minting the document link' });
+    progress = startProgress((t) => monday.logAction(itemId, t), { phase: 'reading the hire record and re-minting the document link' });
 
     // Signers by mode: 'candidate' sends straight to the new hire (Adobe
     // emails them the document, one signature completes it); 'serial3' runs
@@ -215,6 +234,11 @@ module.exports = async function (context, queueItem) {
     };
 
   } catch (error) {
+    // Stop any progress timer first — it is unref'd and survives the throw,
+    // so without this it posts "⏳ Ns …" forever after a failure.
+    if (progress) { try { progress.stop(); } catch (e) { /* noop */ } }
+    if (sendProgress) { try { sendProgress.stop(); } catch (e) { /* noop */ } }
+
     logger.error('sendForSign-error', { error: error.message, itemId: queueItem?.itemId });
 
     // Update Monday: status → sign failed
