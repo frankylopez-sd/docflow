@@ -328,6 +328,9 @@ async function handleWebhook(req, mondayRow = null) {
           boardId: String(boardId),
           itemId: String(itemId),
           mode: 'prep',
+          // Unique per human click: sendForSign dedupes a queue REDELIVERY of
+          // the SAME click by this id, while a genuinely new click supersedes.
+          actionId: String(Date.now()),
           approvedAt: new Date().toISOString(),
           userId: claims?.userId || claims?.sub || undefined,
         },
@@ -367,6 +370,9 @@ async function handleWebhook(req, mondayRow = null) {
           boardId: String(boardId),
           itemId: String(itemId),
           mode: 'send',
+          // Unique per human click: a REDELIVERY of the same click is skipped,
+          // a NEW click (already sent, not yet signed) deliberately re-sends.
+          actionId: String(Date.now()),
           sentAt: new Date().toISOString(),
           userId: claims?.userId || claims?.sub || undefined,
         },

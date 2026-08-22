@@ -42,7 +42,7 @@ async function findHiredItems(atsBoardId) {
         columns: [{column_id: $columnId, column_values: [$value]}],
         limit: 100
       ) {
-        items { id name updated_at }
+        items { id name updated_at state }
       }
     }`;
   const data = await monday._gql(query, {
@@ -85,6 +85,12 @@ async function reconcileHiredCandidates() {
     for (const item of hired) {
       if (seen.has(String(item.id))) continue;
       seen.add(String(item.id));
+      // Archived cards still resolve via the API (finding A65) — an archived
+      // ATS row is never a live missed webhook. Skip it.
+      if (item.state && item.state !== 'active') {
+        summary.archived = (summary.archived || 0) + 1;
+        continue;
+      }
       summary.scanned++;
       // Recency gate: stale rows are history, not missed webhooks.
       const touched = item.updated_at ? Date.parse(item.updated_at) : 0;

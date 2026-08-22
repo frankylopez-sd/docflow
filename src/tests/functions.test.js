@@ -124,6 +124,93 @@ describe('Azure Function entrypoints', () => {
     expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.sent });
   });
 
+  test('sendForSign HOLDS the send when Adobe has not issued the signing link (no candidate email, not Sent)', async () => {
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555' }); // build packet
+    // Adobe never issues the signing URL — reinstall routes to fail signingUrls.
+    installRoutes(axios, backend, { noSigningUrl: true });
+    const mailer = require('../lib/mailer');
+    const sendSpy = jest.spyOn(mailer, 'sendMail');
+    const ctx = makeContext();
+    await sendForSign(ctx, { boardId: '111', itemId: '555', mode: 'send', actionId: 'HOLD-1' });
+    // Held: candidate NOT emailed, status NOT advanced, offer reverted to Ready to Send.
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(ctx.res.body).toMatchObject({ held: true });
+    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.awaitingReview });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.readyToSend });
+    const bodies = backend.updates.filter((u) => u.itemId === '555').map((u) => u.body).join('\n');
+    expect(bodies).toContain('I held the send');
+    sendSpy.mockRestore();
+  });
+
+  test('sendForSign send proceeds when the signing link is present', async () => {
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555' });
+    const ctx = makeContext();
+    await sendForSign(ctx, { boardId: '111', itemId: '555', mode: 'send', actionId: 'GO-1' });
+    expect(ctx.res.body).not.toMatchObject({ held: true });
+    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.outForSignature });
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus]).toEqual({ label: config.load().monday.offerLabels.sent });
+  });
+
+  test('re-approve supersedes: cancels the old agreement and builds a fresh one', async () => {
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555', actionId: 'APP-1' });
+    expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
+    const cancelSpy = jest.spyOn(adobe, 'cancelAgreement');
+    // A NEW approve click (different actionId) — deliberate rebuild.
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555', actionId: 'APP-2' });
+    expect(cancelSpy).toHaveBeenCalledWith('AGR-42', expect.any(String));
+    // Fresh agreement re-minted and stored again.
+    expect(backend.serialize(backend.rows[555].written.text_agreement)).toBe('AGR-42');
+    const bodies = backend.updates.filter((u) => u.itemId === '555').map((u) => u.body).join('\n');
+    expect(bodies).toContain('cancelled the previous agreement AGR-42');
+    cancelSpy.mockRestore();
+  });
+
+  test('re-approve REDELIVERY of the same click does not rebuild (idempotent)', async () => {
+    await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+    await sendForSign(makeContext(), { boardId: '111', itemId: '555', actionId: 'APP-9' });
+    const cancelSpy = jest.spyOn(adobe, 'cancelAgreement');
+    const ctx = makeContext();
+    await sendForSign(ctx, { boardId: '111', itemId: '555', actionId: 'APP-9' }); // same click redelivered
+    expect(cancelSpy).not.toHaveBeenCalled();
+    expect(ctx.res.body).toMatchObject({ skipped: true });
+    cancelSpy.mockRestore();
+  });
+
+  test('re-send: a new actionId re-sends, a redelivered actionId does NOT double-send', async () => {
+    process.env.GRAPH_CLIENT_ID = 'gc';
+    process.env.GRAPH_CLIENT_SECRET = 'gs';
+    process.env.MAIL_SENDER = 'hr@medwatchers.com';
+    config.reset();
+    try {
+      const mailer = require('../lib/mailer');
+      mailer._resetTokenCache();
+      const sendSpy = jest.spyOn(mailer, 'sendMail');
+      await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+      await sendForSign(makeContext(), { boardId: '111', itemId: '555', actionId: 'B-0' }); // build
+      // First send (click S1)
+      await sendForSign(makeContext(), { boardId: '111', itemId: '555', mode: 'send', actionId: 'S1' });
+      // Redelivery of the SAME click S1 — must NOT email again.
+      const dupCtx = makeContext();
+      await sendForSign(dupCtx, { boardId: '111', itemId: '555', mode: 'send', actionId: 'S1' });
+      expect(dupCtx.res.body).toMatchObject({ skipped: true });
+      // A genuinely NEW click S2 — deliberately re-sends.
+      await sendForSign(makeContext(), { boardId: '111', itemId: '555', mode: 'send', actionId: 'S2' });
+      // Exactly two real sends (S1 + S2), never three.
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      const bodies = backend.updates.filter((u) => u.itemId === '555').map((u) => u.body).join('\n');
+      expect(bodies).toContain('I re-sent the package to');
+      sendSpy.mockRestore();
+    } finally {
+      delete process.env.GRAPH_CLIENT_ID;
+      delete process.env.GRAPH_CLIENT_SECRET;
+      delete process.env.MAIL_SENDER;
+      config.reset();
+    }
+  });
+
   test('sendForSign entry fails clearly when no PDF link exists to hydrate', async () => {
     // Approval arrived but the offer was never generated: the link column is
     // empty, so hydration must throw (queue redelivery handles the retry).
@@ -298,6 +385,12 @@ describe('signPoller fallback', () => {
     await signPoller(ctx, { isPastDue: false });
     expect(Array.isArray(ctx.bindings.archiveQueue)).toBe(true);
     expect(JSON.parse(ctx.bindings.archiveQueue[0]).agreementId).toBe('AGR-42');
+  });
+
+  test('archived cards are skipped by the poller (finding A65)', async () => {
+    backend.rows[555].state = 'archived';
+    const pending = await signPoller.findPendingItems();
+    expect(pending).toHaveLength(0);
   });
 });
 

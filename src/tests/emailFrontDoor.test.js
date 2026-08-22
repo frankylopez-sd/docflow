@@ -104,17 +104,22 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     expect(pkg.body).toContain('went to jane@medwatchers.com');
   });
 
-  test('GATE 2 with no signing URL from Adobe: still sends, with fallback wording', async () => {
+  test('GATE 2 with no signing URL from Adobe: HOLDS the send — never emails a dead link', async () => {
     armGraphMail();
+    await sendForSign(makeContext(), signQueueItem()); // gate 1 builds the packet (signing URL available)
+    // Now Adobe stops issuing the signing URL before the send gate fires.
     installRoutes(axios, backend, { noSigningUrl: true });
-    await sendForSign(makeContext(), signQueueItem());
-    await sendForSign(makeContext(), { ...signQueueItem(), mode: 'send' });
+    const ctx = makeContext();
+    await sendForSign(ctx, { ...signQueueItem(), mode: 'send' });
 
-    const sends = graphSendCalls();
-    expect(sends).toHaveLength(1);
-    const [, payload] = sends[0];
-    expect(payload.message.body.content).toContain('signing link pending');
-    expect(payload.message.body.content).not.toContain('{{signLink}}');
+    // No candidate email goes out with a placeholder link.
+    expect(graphSendCalls()).toHaveLength(0);
+    expect(ctx.res.body).toMatchObject({ held: true });
+    // Offer parks back at Ready to Send; the card explains the hold.
+    expect(backend.rows[555].written[config.load().monday.columns.offerStatus])
+      .toEqual({ label: config.load().monday.offerLabels.readyToSend });
+    const held = backend.updates.find((u) => u.body.includes('I held the send'));
+    expect(held).toBeDefined();
   });
 });
 

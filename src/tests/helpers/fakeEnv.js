@@ -135,6 +135,9 @@ function makeBackend() {
               items: matches.map((m) => ({
                 id: m.id, name: m.name, column_values: columnValuesFor(m),
                 updated_at: m.updated_at || new Date().toISOString(),
+                // state defaults to active; a test sets 'archived' to exercise
+                // the archived-card guard (finding A65).
+                state: m.state || 'active',
               })),
             },
           },

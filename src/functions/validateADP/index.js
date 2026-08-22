@@ -28,6 +28,26 @@ module.exports = async function (context, req) {
   const STATUS_INVALID = labels.missingFields || 'Missing Required Fields';
 
   try {
+    // Shared-secret gate (finding D48): this endpoint stays authLevel anonymous
+    // (we can't verify every caller), so a header secret is the real guard.
+    // Fail-open ONLY when unconfigured — set DOCFLOW_VALIDATE_KEY to enforce.
+    const expectedKey = process.env.DOCFLOW_VALIDATE_KEY;
+    if (expectedKey) {
+      const headers = (req && req.headers) || {};
+      const provided = headers['x-docflow-key'] || headers['X-Docflow-Key'] || headers['X-DOCFLOW-KEY'];
+      if (provided !== expectedKey) {
+        logger.warn('validateADP-auth-rejected', { note: 'missing or mismatched x-docflow-key header' });
+        return context.res = {
+          status: 401,
+          body: { error: 'Unauthorized' }
+        };
+      }
+    } else {
+      logger.warn('validateADP-auth-disabled', {
+        note: 'DOCFLOW_VALIDATE_KEY unset — anonymous writes accepted (fail-open). Set it to require x-docflow-key.'
+      });
+    }
+
     const { boardId, itemId, ...hireData } = req.body;
 
     if (!boardId || !itemId) {

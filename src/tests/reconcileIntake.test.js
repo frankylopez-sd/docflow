@@ -96,6 +96,15 @@ describe('reconcileIntake', () => {
     expect(backend.updates).toHaveLength(0);
   });
 
+  test('archived ATS rows are skipped — never re-imported (finding A65)', async () => {
+    backend.rows[701].state = 'archived';
+    const summary = await reconcileIntake.reconcileHiredCandidates();
+    expect(summary.archived).toBe(1);
+    expect(summary.caughtUp).toBe(0);
+    expect(backend.archiveItems).toHaveLength(0);
+    expect(backend.updates).toHaveLength(0);
+  });
+
   test('timer entry point runs the sweep without throwing', async () => {
     await expect(reconcileIntake({ bindings: {} }, { isPastDue: false })).resolves.toBeUndefined();
     expect(backend.archiveItems).toHaveLength(1);

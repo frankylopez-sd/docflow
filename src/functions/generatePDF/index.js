@@ -45,6 +45,48 @@ function selectTemplate({ adpJobTitle, payClass, flsaStatus, workerType }) {
 }
 
 /**
+ * Pay-rate sanity gate (finding A7). A legal offer letter must never render an
+ * absurd wage ($9/hr for a pharmacist, "TBD", "-5"). Returns { ok } when the
+ * rate is safe to print, or { ok:false, display, reason } naming the problem in
+ * DocFlow's voice. Role-aware floors and the ceiling are env-driven.
+ *
+ * The band applies to HOURLY pay only — salaried/annual amounts (e.g. 65000)
+ * legitimately exceed the hourly ceiling, so they're checked for a positive
+ * number and nothing more.
+ */
+function validatePayRate({ payRate, payFrequency, payType, adpJobTitle, payClass }) {
+  const minRph = Number(process.env.DOCFLOW_MIN_PAY_RPH) || 30;
+  const minDefault = Number(process.env.DOCFLOW_MIN_PAY_DEFAULT) || 12;
+  const maxPay = Number(process.env.DOCFLOW_MAX_PAY) || 200;
+
+  const raw = payRate == null ? '' : String(payRate).trim();
+  const display = raw === '' ? '(blank)' : (/^\$/.test(raw) ? raw : `$${raw}`);
+  const num = Number(raw.replace(/[$,\s]/g, ''));
+
+  if (raw === '' || !Number.isFinite(num) || num <= 0) {
+    return { ok: false, display, reason: `That's not a pay rate I can put in a legal letter — I need a positive number.` };
+  }
+
+  // Non-hourly (annual/salary/monthly) pay isn't bounded by the hourly band.
+  const cadence = `${payFrequency || ''} ${payType || ''}`;
+  if (/annual|salary|year|month/i.test(cadence)) {
+    return { ok: true };
+  }
+
+  const isRph = /^pharmacist\b/i.test(String(adpJobTitle || '')) || /^rph$/i.test(String(payClass || ''));
+  const floor = isRph ? minRph : minDefault;
+  const roleLabel = isRph ? 'a Pharmacist' : 'this role';
+
+  if (num < floor) {
+    return { ok: false, display, reason: `For ${roleLabel} I expect at least $${floor}/hr — this is below that floor.` };
+  }
+  if (num > maxPay) {
+    return { ok: false, display, reason: `That's above the $${maxPay}/hr ceiling — looks like a typo.` };
+  }
+  return { ok: true };
+}
+
+/**
  * Format a date (Date or "YYYY-MM-DD" string) as en-US long form,
  * e.g. "August 21, 2026". Date-only strings are parsed as local-date
  * components to avoid UTC off-by-one shifts.
@@ -123,6 +165,38 @@ async function processGenerate(context, queueItem) {
       context.res = { status: 200, body: { itemId, generated: false, missingFields } };
       return; // no throw — retries can't fill in fields, a person can
     }
+
+    // Pay-rate sanity gate (finding A7): a bad wage ("9", "TBD", "-5", a
+    // typo'd $500/hr) must never render into a signed legal document. Stop
+    // cleanly, name the problem on the card, and wait for a person to fix it.
+    const payCheck = validatePayRate({ payRate, payFrequency, payClass, adpJobTitle });
+    if (!payCheck.ok) {
+      logger.warn('generatePDF-pay-rate-rejected', { itemId, payRate, reason: payCheck.reason });
+      await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.missingFields).catch(() => {});
+      await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.moreInfo).catch(() => {});
+      await monday.logAction(itemId,
+        stepHeader(2, 'Hire details')
+        + `✋ That pay rate looks off: ${payCheck.display}.\n`
+        + `WHY: ${payCheck.reason}\n\n`
+        + `Over to you\n`
+        + `    ✎ fix the Pay Rate on this card and I'll build the letter.`
+      ).catch(() => {});
+      context.res = { status: 200, body: { itemId, generated: false, payRateInvalid: true } };
+      return; // no throw — a person corrects the rate, a retry can't
+    }
+
+    // Concurrency claim (finding A2): a queue visibility-timeout redelivery can
+    // start a SECOND run of this same item mid-flight — two letters, two
+    // agreements downstream. Atomic create-if-not-exists is the tie-breaker:
+    // exactly one run wins the lock. Released on failure so the retry can run.
+    const claimKey = `generate-${itemId}.lock`;
+    const claimed = await blob.claimOnce('pdf-locks', claimKey).catch(() => true);
+    if (!claimed) {
+      logger.event('generatePDF-claim-lost', { itemId });
+      context.res = { status: 200, body: { itemId, generated: false, status: 'another run already claimed this item' } };
+      return;
+    }
+    context._generateClaim = { container: 'pdf-locks', key: claimKey };
 
     // Update Monday: status → ④ Docs In Progress, offer → ② Generating
     await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.docsInProgress).catch(err => {
@@ -284,6 +358,11 @@ async function processGenerate(context, queueItem) {
   } catch (error) {
     logger.error('generatePDF-error', { error: error.message, itemId: queueItem?.itemId });
 
+    // Give the claim back so the automatic retry isn't locked out (finding A2).
+    if (context && context._generateClaim) {
+      await blob.releaseClaim(context._generateClaim.container, context._generateClaim.key).catch(() => {});
+    }
+
     // Update Monday: status → PDF failed
     const failCfg = config.load();
     await monday.updateItemStatus(queueItem?.boardId, queueItem?.itemId, failCfg.monday.statusLabels.pdfFailed).catch(() => {});
@@ -315,3 +394,4 @@ module.exports = processGenerate;
 module.exports.processGenerate = processGenerate;
 module.exports.selectTemplate = selectTemplate;
 module.exports.formatLongDate = formatLongDate;
+module.exports.validatePayRate = validatePayRate;

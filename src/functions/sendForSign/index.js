@@ -34,7 +34,7 @@ module.exports = async function (context, queueItem) {
 
     logger.info('sendForSign-start', { itemId, mode });
 
-    const existingAgreement = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.agreementId)
+    let existingAgreement = await monday.getColumnValueJson(boardId, itemId, cfg.monday.columns.agreementId)
       .then((v) => (typeof v === 'string' ? v : (v && (v.text || v.value))) || null)
       .catch(() => null);
     const rowNow = await monday.readRow(boardId, itemId).catch(() => null);
@@ -54,26 +54,42 @@ module.exports = async function (context, queueItem) {
       if (!existingAgreement) {
         throw new Error(`sendForSign: no Adobe agreement on item ${itemId} — select "${cfg.monday.offerLabels.approved}" first to build the packet.`);
       }
-      // Idempotency: the docflow-sign queue is at-least-once, and a hung
-      // invocation gets its message redelivered after the visibility timeout.
-      // Without this guard the candidate is emailed a SECOND welcome packet
-      // with a SECOND signing link (2026-08-20 duplicate-send incident). If we
-      // already advanced past the send, this is a replay — exit cleanly.
-      const offerNow = rowNow && rowNow.columns && rowNow.columns[cfg.monday.columns.offerStatus];
-      if (offerNow === cfg.monday.offerLabels.sent || statusNow === cfg.monday.statusLabels.outForSignature) {
-        logger.event('sendForSign-send-duplicate-skipped', { itemId, existingAgreement, offerNow, statusNow });
-        context.res = { status: 200, body: { itemId, skipped: true, reason: 'already sent (idempotent replay)', agreementId: existingAgreement } };
-        return;
+      // Re-runnable send: distinguish a NEW human click from a queue
+      // REDELIVERY of the SAME click. mondayWebhook stamps each send job with a
+      // unique actionId; we skip ONLY when THIS actionId already ran (its send
+      // comment carries the marker). A genuinely new click (already sent but
+      // not yet signed) deliberately RE-SENDS a fresh signing link.
+      const actionId = String(queueItem.actionId || queueItem.sentAt || '');
+      const sendMarker = actionId ? `⟦send#${actionId}⟧` : null;
+      if (sendMarker) {
+        const alreadyRan = await monday.hasUpdateContaining(itemId, sendMarker).catch(() => false);
+        if (alreadyRan) {
+          logger.event('sendForSign-send-duplicate-skipped', { itemId, existingAgreement, sendMarker });
+          context.res = { status: 200, body: { itemId, skipped: true, reason: 'already sent (idempotent replay)', agreementId: existingAgreement } };
+          return;
+        }
       }
+      const offerNow = rowNow && rowNow.columns && rowNow.columns[cfg.monday.columns.offerStatus];
+      const isResend = offerNow === cfg.monday.offerLabels.sent || statusNow === cfg.monday.statusLabels.outForSignature;
       await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.sendingEmail).catch(() => {});
       sendProgress = startProgress((t) => monday.logAction(itemId, t), { phase: 'fetching the signing link from Adobe, then emailing the candidate' });
       let delivered;
       try {
         delivered = await deliverPackage(cfg, {
           boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement,
+          sendMode: true, resend: isResend, marker: sendMarker,
         });
       } finally {
         sendProgress.stop();
+      }
+      // HELD: Adobe never issued the signing link. deliverPackage posted the
+      // "I held the send" note and sent NOTHING. Leave the offer at Ready to
+      // Send (revert the "Sending Email" label) and return WITHOUT marking Sent.
+      if (delivered.held) {
+        await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.readyToSend).catch(() => {});
+        logger.event('sendForSign-send-held-no-signlink', { itemId, agreementId: existingAgreement });
+        context.res = { status: 200, body: { itemId, held: true, reason: 'signing link not ready — send held', agreementId: existingAgreement } };
+        return;
       }
       await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.outForSignature)
         .catch((err) => logger.warn('sendForSign-status-update-failed', { itemId, error: err.message }));
@@ -84,28 +100,43 @@ module.exports = async function (context, queueItem) {
       return;
     }
 
-    // ── GATE 1 · ④ Package Approved — build once; never mint a second
-    // agreement. A silent skip looks identical to a broken system, so always
-    // say why nothing happened (2026-08-20: "I hit approve and nothing").
-    if (existingAgreement && statusNow === cfg.monday.statusLabels.outForSignature) {
-      logger.event('sendForSign-duplicate-skipped', { itemId, existingAgreement });
-      await monday.logAction(itemId,
-        stepHeader(8, 'Signing')
-        + `ℹ️ Nothing to rebuild — I ignore a second approve on purpose.\n\n`
-        + `WHY: status is "${cfg.monday.statusLabels.outForSignature}" and this packet was already built AND sent — agreement on file: ${existingAgreement}. Building again would put a SECOND signing packet in the candidate's inbox.\n\n`
-        + `Over to you\n`
-        + `    ✎ need a corrected packet → select "${cfg.monday.offerLabels.moreInfo}" first, fix the fields (I rebuild the letter), then approve again`
-      ).catch(() => {});
-      context.res = { status: 200, body: { itemId, skipped: true, reason: 'already out for signature', agreementId: existingAgreement } };
-      return;
+    // ── GATE 1 · ④ Package Approved — RE-RUNNABLE by design. A new approve
+    // click supersedes: cancel the old Adobe agreement, clear the stored id,
+    // and build a FRESH packet from the current letter. Protection against an
+    // ACCIDENTAL double (queue redelivery) comes from the unique actionId —
+    // the same click's marker on the card means "already handled".
+    const approveActionId = String(queueItem.actionId || queueItem.approvedAt || '');
+    const approveMarker = approveActionId ? `⟦approve#${approveActionId}⟧` : null;
+    if (approveMarker) {
+      const alreadyBuilt = await monday.hasUpdateContaining(itemId, approveMarker).catch(() => false);
+      if (alreadyBuilt) {
+        logger.event('sendForSign-prep-duplicate-skipped', { itemId, approveMarker, existingAgreement });
+        context.res = { status: 200, body: { itemId, skipped: true, reason: 'approve already processed (idempotent replay)', agreementId: existingAgreement } };
+        return;
+      }
     }
     if (existingAgreement) {
-      // Re-approved before sending: refresh the draft against the same packet.
-      await deliverPackage(cfg, {
-        boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement, draftOnly: true,
-      });
-      context.res = { status: 200, body: { itemId, agreementId: existingAgreement, reused: true } };
-      return;
+      if (approveMarker) {
+        // Deliberate REBUILD (a new approve click, not a redelivery): supersede
+        // the prior agreement so there is never a second live signing packet.
+        logger.event('sendForSign-rebuild-superseding', { itemId, oldAgreement: existingAgreement });
+        await adobe.cancelAgreement(existingAgreement, 'Superseded by re-approval')
+          .catch((err) => logger.warn('sendForSign-cancel-old-agreement-failed', { itemId, existingAgreement, error: err.message }));
+        await monday.updateItemColumn(boardId, itemId, cfg.monday.columns.agreementId, '')
+          .catch((err) => logger.warn('sendForSign-clear-agreement-id-failed', { itemId, error: err.message }));
+        await monday.logAction(itemId,
+          stepHeader(4, 'Package approved')
+          + `I cancelled the previous agreement ${existingAgreement} and built a fresh packet — rebuilding now from the current letter. Nothing is sent yet.`
+        ).catch(() => {});
+        existingAgreement = null; // fall through to the fresh build below
+      } else {
+        // Legacy/no-actionId re-approve: refresh the draft against the same packet.
+        await deliverPackage(cfg, {
+          boardId, itemId, firstName, lastName, workEmail, agreementId: existingAgreement, draftOnly: true,
+        });
+        context.res = { status: 200, body: { itemId, agreementId: existingAgreement, reused: true } };
+        return;
+      }
     }
 
     // HR-approval messages carry only {boardId, itemId} — Monday is the
@@ -225,7 +256,7 @@ module.exports = async function (context, queueItem) {
     try {
       await deliverPackage(cfg, {
         boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly: true,
-        builtLine,
+        builtLine, marker: approveMarker,
         insideNote: `Adobe Sign agreement ${agreementId} created with ${signers.length} signer(s) and ${1 + packetDocs.length} document(s); no candidate email sent (awaiting the ⑤ Send Package gate).`,
       });
     } finally {
@@ -289,13 +320,35 @@ module.exports = async function (context, queueItem) {
  * @returns {Promise<{sentTo:string|null, signLink:string|null}>}
  */
 async function deliverPackage(cfg, opts) {
-  const { boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly, builtLine, insideNote } = opts;
+  const { boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly,
+    builtLine, insideNote, sendMode, resend, marker } = opts;
   const mailer = require('../../lib/mailer');
   const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
+  // Discreet dedupe/redelivery marker appended to whatever comment we post so a
+  // queue REDELIVERY of the same click finds it and no-ops (see sendForSign).
+  const markerLine = marker ? `\n\n${marker}` : '';
 
   // Adobe's own emails are suppressed — OUR link is the only door, so poll
-  // harder for it and shout on the card if it can't be fetched.
-  const signLink = await adobe.getSigningUrl(agreementId, { attempts: 10, delayMs: 2000 }).catch(() => null);
+  // harder for it. On the actual SEND we poll longest (Adobe can lag issuing
+  // the link) so we never email a candidate a dead "(pending)" placeholder.
+  const signLink = await adobe.getSigningUrl(agreementId, sendMode
+    ? { attempts: 15, delayMs: 3000 }
+    : { attempts: 10, delayMs: 2000 }).catch(() => null);
+
+  // HOLD THE SEND: on the real send gate, if Adobe still hasn't issued the
+  // signing link, do NOT email the candidate a dead link. Leave the offer at
+  // Ready to Send (the caller reverts the status) and tell HR to try again.
+  if (!signLink && sendMode) {
+    await monday.logAction(itemId,
+      stepHeader(6, 'Ready to send')
+      + `I held the send — Adobe hasn't issued the signing link yet. Re-select "${cfg.monday.offerLabels.sendPackage}" in a moment and I'll try again.\n\n`
+      + `WHY: Adobe's own emails are turned off — our link is the only door, so I won't put a dead link in ${firstName}'s inbox.\n\n`
+      + `Over to you\n`
+      + `    → wait a minute and re-select "${cfg.monday.offerLabels.sendPackage}" — I'll ask Adobe again`
+    ).catch(() => {});
+    return { sentTo: null, signLink: null, held: true };
+  }
+
   if (!signLink) {
     await monday.logAction(itemId,
       stepHeader(5, 'Packet built')
@@ -304,6 +357,7 @@ async function deliverPackage(cfg, opts) {
       + `Over to you\n`
       + `    → wait a minute and re-select "${cfg.monday.offerLabels.approved}" — I'll ask Adobe again\n`
       + `    → or grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it by hand`
+      + markerLine
     ).catch(() => {});
   }
 
@@ -349,11 +403,16 @@ async function deliverPackage(cfg, opts) {
   // The full email body appears EXACTLY ONCE in the thread — the STEP 6
   // preview below. The STEP 7 confirmation refers back to it instead of
   // repeating it (see docs/VOICE_GUIDE.md, "the email appears once").
-  const comment = sentTo
-    ? stepHeader(7, 'Sent')
-      + `Sent. ${firstName}'s welcome package went to ${sentTo} just now.\n\n`
-      + `The email you previewed at step 6 went out verbatim.\nRecipient: ${sentTo}${reference}\n\n`
-      + `Next → ${firstName} signs from that email; I'll post here the second the signed packet lands.`
+  const comment = (sentTo
+    ? (resend
+      ? stepHeader(7, 'Re-sent')
+        + `I re-sent the package to ${sentTo}.\n\n`
+        + `The same email you previewed at step 6 went out again verbatim.\nRecipient: ${sentTo}${reference}\n\n`
+        + `Next → ${firstName} signs from that email; I'll post here the second the signed packet lands.`
+      : stepHeader(7, 'Sent')
+        + `Sent. ${firstName}'s welcome package went to ${sentTo} just now.\n\n`
+        + `The email you previewed at step 6 went out verbatim.\nRecipient: ${sentTo}${reference}\n\n`
+        + `Next → ${firstName} signs from that email; I'll post here the second the signed packet lands.`)
     : draftOnly
       ? stepHeader(6, 'Ready to send')
         + `${builtLine ? `${builtLine}\n` : ''}Below is word-for-word what ${firstName} receives the moment you select "${cfg.monday.offerLabels.sendPackage}". Preview only — I haven't sent anything.\n\n`
@@ -364,7 +423,8 @@ async function deliverPackage(cfg, opts) {
       : stepHeader(7, 'Send by hand')
         + `The packet is ready for ${firstName}, but auto-send is off — I haven't sent anything.\n\n`
         + `Over to you\n`
-        + `    → copy the exact email previewed at step 6 into Outlook and send it to ${firstName} (${workEmail}) — I take over the moment they sign${reference}`;
+        + `    → copy the exact email previewed at step 6 into Outlook and send it to ${firstName} (${workEmail}) — I take over the moment they sign${reference}`)
+    + markerLine;
   await monday.logAction(itemId, comment, insideNote)
     .catch((err) => logger.warn('sendForSign-package-notify-failed', { itemId, error: err.message }));
 

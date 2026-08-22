@@ -23,6 +23,7 @@ async function findPendingItems() {
         items {
           id
           name
+          state
           column_values { id text }
         }
       }
@@ -34,7 +35,10 @@ async function findPendingItems() {
   }, 'monday-find-pending-sign');
 
   const items = (data.items_page_by_column_values && data.items_page_by_column_values.items) || [];
-  return items.map((item) => {
+  return items
+    // Archived cards still resolve via the API (finding A65) — never re-poll one.
+    .filter((item) => !item.state || item.state === 'active')
+    .map((item) => {
     const agreementCol = (item.column_values || []).find((cv) => cv.id === cfg.monday.columns.agreementId);
     return { itemId: item.id, name: item.name, agreementId: agreementCol ? agreementCol.text : null };
   }).filter((i) => i.agreementId);
