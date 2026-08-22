@@ -130,7 +130,12 @@ function makeBackend() {
         data: {
           data: {
             items_page_by_column_values: {
-              items: matches.map((m) => ({ id: m.id, name: m.name, column_values: columnValuesFor(m) })),
+              // updated_at: rows carry one when a test sets it (stale-gate
+              // coverage); otherwise "just touched" so sweeps see them fresh.
+              items: matches.map((m) => ({
+                id: m.id, name: m.name, column_values: columnValuesFor(m),
+                updated_at: m.updated_at || new Date().toISOString(),
+              })),
             },
           },
         },

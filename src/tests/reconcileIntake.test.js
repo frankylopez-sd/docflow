@@ -85,6 +85,17 @@ describe('reconcileIntake', () => {
     expect(backend.archiveItems).toHaveLength(0);
   });
 
+  test('stale hires are history, not missed webhooks — nothing imported', async () => {
+    // Row last touched 3 days ago: outside the 2h window (the 2026-08-21
+    // incident guard — the first sweep imported 9 pre-DocFlow candidates).
+    backend.rows[701].updated_at = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const summary = await reconcileIntake.reconcileHiredCandidates();
+    expect(summary.caughtUp).toBe(0);
+    expect(summary.stale).toBe(1);
+    expect(backend.archiveItems).toHaveLength(0);
+    expect(backend.updates).toHaveLength(0);
+  });
+
   test('timer entry point runs the sweep without throwing', async () => {
     await expect(reconcileIntake({ bindings: {} }, { isPastDue: false })).resolves.toBeUndefined();
     expect(backend.archiveItems).toHaveLength(1);

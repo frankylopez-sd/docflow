@@ -22,6 +22,15 @@ const { processHiredCandidate } = require('../atsSync');
 
 const MAX_CATCHUPS_PER_RUN = 10;
 
+// Only rows touched this recently count as a "missed click". A real missed
+// webhook is always fresh (deploy windows are minutes); anything older is
+// history — importing it floods the Onboarding board with pre-DocFlow hires
+// (the 2026-08-21 incident: 9 old candidates imported by the first sweep).
+function _windowMs() {
+  const hours = parseFloat(process.env.DOCFLOW_RECONCILE_WINDOW_HOURS) || 2;
+  return hours * 60 * 60 * 1000;
+}
+
 /** Items on one ATS board whose status column = the hired label. */
 async function findHiredItems(atsBoardId) {
   const cfg = config.load();
@@ -33,7 +42,7 @@ async function findHiredItems(atsBoardId) {
         columns: [{column_id: $columnId, column_values: [$value]}],
         limit: 100
       ) {
-        items { id name }
+        items { id name updated_at }
       }
     }`;
   const data = await monday._gql(query, {
@@ -77,6 +86,12 @@ async function reconcileHiredCandidates() {
       if (seen.has(String(item.id))) continue;
       seen.add(String(item.id));
       summary.scanned++;
+      // Recency gate: stale rows are history, not missed webhooks.
+      const touched = item.updated_at ? Date.parse(item.updated_at) : 0;
+      if (!touched || Date.now() - touched > _windowMs()) {
+        summary.stale = (summary.stale || 0) + 1;
+        continue;
+      }
       try {
         const linked = await alreadyOnboarded(item.id, String(item.name || '').trim(), boardCfg.relationColumn);
         if (linked) {
