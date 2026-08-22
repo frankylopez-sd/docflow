@@ -73,8 +73,8 @@ module.exports = async function (context, req) {
           stepHeader(2, 'Hire details')
           + `✋ The ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
           + missing.map((f) => `    ${friendlyFieldName(f)}`).join('\n')
-          + `\n\nYour move\n`
-          + `    ✎ fill ${missing.length === 1 ? 'it' : 'them'} in on this card — the validation passes on the next check`
+          + `\n\nOver to you\n`
+          + `    ✎ fill ${missing.length === 1 ? 'it' : 'them'} in on this card — I re-check automatically and pass it through`
         );
       } catch (_) { /* comment is best-effort — validation result stands */ }
     }

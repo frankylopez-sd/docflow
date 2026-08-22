@@ -99,9 +99,9 @@ async function processGenerate(context, queueItem) {
       await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.moreInfo).catch(() => {});
       await monday.logAction(itemId,
         stepHeader(2, 'Hire details')
-        + `✋ ${missingFields.length === 1 ? 'One field is' : `${missingFields.length} fields are`} still empty:\n`
+        + `✋ I can't write the letter yet — ${missingFields.length === 1 ? 'one field is' : `${missingFields.length} fields are`} still empty:\n`
         + missingFields.map((f) => `    ${f}`).join('\n')
-        + `\n\nYour move\n`
+        + `\n\nOver to you\n`
         + `    ✎ fill ${missingFields.length === 1 ? 'it' : 'them'} in, then check ☑ Details Verified. The letter builds right away.`
       ).catch(() => {});
       context.res = { status: 200, body: { itemId, generated: false, missingFields } };
@@ -118,8 +118,8 @@ async function processGenerate(context, queueItem) {
 
     await monday.logAction(itemId,
       stepHeader(3, 'Writing letter')
-      + `Writing ${firstName || 'the hire'}'s offer letter — about a minute.\n\n`
-      + `Next → the finished letter posts here with a five-point checklist.`
+      + `I'm writing ${firstName || 'the hire'}'s offer letter — about a minute, usually less.\n\n`
+      + `Next → I post the finished letter here with a five-point checklist.`
     ).catch(err => logger.warn('generatePDF-start-notify-failed', { itemId, error: err.message }));
 
     // Prepare merge data for Adobe template
@@ -230,14 +230,14 @@ async function processGenerate(context, queueItem) {
         signLink: '(direct signing link — inserted automatically at send time)',
       };
       const pvSubject = mailer.renderTemplate((tpl && tpl.subject) || 'Welcome to MedWatchers, {{firstName}} — everything you need is right here! 🎉', previewFill);
-      subjectLine = `\n\nEmail subject: ${pvSubject} — the word-for-word email appears at step 6 before anything goes out.`;
+      subjectLine = `\n\nEmail subject: ${pvSubject} — I'll show you the word-for-word email at step 6 before anything goes out.`;
     } catch (err) {
       logger.warn('generatePDF-email-preview-failed', { itemId, error: err.message });
     }
 
     await monday.logAction(itemId,
       stepHeader(3, 'Letter built')
-      + `The offer letter is ready. ${attached.attached ? 'It\'s attached to this card — open the 📄 Offer Letter column to read it.' : 'Open the PDF Document link to read it.'}\n\n`
+      + `Built. Read it over — ${attached.attached ? 'it\'s attached to this card, in the 📄 Offer Letter column.' : 'it\'s behind the PDF Document link.'}\n\n`
       + `Check these five:\n`
       + `    Name — ${firstName} ${lastName}\n`
       + `    Role — ${adpJobTitle}, ${adpDepartment}\n`
@@ -245,9 +245,9 @@ async function processGenerate(context, queueItem) {
       + `    Start — ${startDate}\n`
       + `    Supervisor — ${supervisor}`
       + subjectLine
-      + `\n\nYour move\n`
-      + `    ✓ all correct → select "${cfg.monday.offerLabels.approved}" — that builds the signing packet and shows you the exact email. Nothing sends yet.\n`
-      + `    ✎ something off → fix the field; the letter rebuilds itself. Or "${cfg.monday.offerLabels.denied}" to stop.`,
+      + `\n\nOver to you\n`
+      + `    ✓ all correct → select "${cfg.monday.offerLabels.approved}" — I build the packet and show you the exact email; nothing sends yet\n`
+      + `    ✎ something off → fix the field and I rebuild the letter. Or "${cfg.monday.offerLabels.denied}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
 
@@ -276,10 +276,10 @@ async function processGenerate(context, queueItem) {
         : httpCode ? 'Adobe PDF Services API' : 'Azure engine (generatePDF)';
       await monday.logAction(queueItem.itemId,
         stepHeader(3, 'Letter failed')
-        + `❌ Offer letter generation failed.\n\n`
+        + `❌ I couldn't build the letter. Here's exactly what happened:\n\n`
         + `SYSTEM: ${system}\n`
         + `ERROR: ${error.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
-        + `FIX: address the cause above, then re-check ☑ Details Verified. (The system also retries automatically.)`
+        + `FIX: address the cause above, then re-check ☑ Details Verified. (I also retry automatically.)`
       ).catch(() => {});
     }
 

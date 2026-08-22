@@ -77,7 +77,7 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     armGraphMail(); // armed on purpose: prep must still not send
     await sendForSign(makeContext(), signQueueItem());
 
-    const pkg = backend.updates.find((u) => u.body.includes('Preview only — not sent'));
+    const pkg = backend.updates.find((u) => u.body.includes(`Preview only — I haven't sent anything`));
     expect(pkg).toBeDefined();
     expect(pkg.body).toContain(ESIGN_URL);
     expect(pkg.body).toContain('Fill out your info form');
@@ -95,7 +95,7 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     expect(payload.message.toRecipients[0].emailAddress.address).toBe('jane@medwatchers.com');
     expect(payload.message.body.content).toContain(ESIGN_URL);
 
-    const pkg = backend.updates.find((u) => u.body.includes('sent verbatim'));
+    const pkg = backend.updates.find((u) => u.body.includes('went out verbatim'));
     expect(pkg.body).toContain('went to jane@medwatchers.com');
   });
 

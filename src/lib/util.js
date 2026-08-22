@@ -147,13 +147,14 @@ function friendlyFieldName(field) {
 }
 
 /**
- * Uniform step header for every HR-facing card comment (see docs/VOICE_GUIDE.md):
- *   ▶ X of 10 · Sentence-case name
+ * Uniform branded step header for every HR-facing card comment
+ * (see docs/VOICE_GUIDE.md):
+ *   ◆ DocFlow · X of 10 — Sentence-case name
  *   ──────────────────────────────
  * Callers pass sentence-case names, no emoji, no ALL-CAPS.
  */
 function stepHeader(step, stateName) {
-  return `▶ ${step} of 10 · ${stateName}\n──────────────────────────────\n`;
+  return `◆ DocFlow · ${step} of 10 — ${stateName}\n──────────────────────────────\n`;
 }
 
 module.exports = { sleep, retry, RateLimiter, startProgress, apiBodySnippet, friendlyFieldName, stepHeader };

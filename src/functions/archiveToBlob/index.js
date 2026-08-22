@@ -205,7 +205,7 @@ async function processArchive(context, queueItem) {
     // the manual checklist, and the confirmation-email outcome — together.
     await monday.logAction(itemId,
       stepHeader(9, 'Signed & filed')
-      + `Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}\n\n`
+      + `Signed and filed. I've attached the packet to this card, archived (agreement ${agreementId}), and opened the background check.${adpLine}\n\n`
       + `THE THREE GATES:\n${gateBoard}\n\n`
       + `${confirmationLine}\n\n`
       + `NEXT STEPS (manual):\n`
@@ -215,8 +215,8 @@ async function processArchive(context, queueItem) {
       + `    4. TalentLMS enrollment — add to training courses\n`
       + `    5. Active Employees — add hire to the roster\n\n`
       + (formReceived
-        ? `Next → status moves to "${postSignStatus}". Flip this card to "${cfg.monday.statusLabels.complete}" when the background check clears.`
-        : `Next → status moves to "${postSignStatus}". When the candidate's form arrives it syncs itself and the card advances to "${cfg.monday.statusLabels.waitingBackground}". Flip to "${cfg.monday.statusLabels.complete}" when the background check clears.`),
+        ? `Next → I move the status to "${postSignStatus}". Flip this card to "${cfg.monday.statusLabels.complete}" when the background check clears.`
+        : `Next → I move the status to "${postSignStatus}". When the candidate's form arrives I sync it and advance the card to "${cfg.monday.statusLabels.waitingBackground}". Flip to "${cfg.monday.statusLabels.complete}" when the background check clears.`),
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 

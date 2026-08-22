@@ -145,7 +145,7 @@ async function processSharePointUpload(msg) {
       try {
         await monday.logAction(itemId,
           stepHeader(9, 'Filed to SharePoint')
-          + `The signed packet was copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}\n\n`
+          + `Filed. The signed packet is copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}\n\n`
           + `Next → nothing; this was the last filing step for the signed packet.`
         );
       } catch (_) { /* comment is best-effort */ }
@@ -188,9 +188,9 @@ async function processSharePointUpload(msg) {
       try {
         await monday.logAction(itemId,
           stepHeader(9, 'SharePoint copy failed')
-          + `❌ SharePoint copy failed. The signed offer is still safe — see the Signed PDF link on this card.\n\n`
+          + `❌ The SharePoint copy failed. The signed offer is still safe — see the Signed PDF link on this card. Here's exactly what happened:\n\n`
           + `SYSTEM: SharePoint (Graph upload)\nERROR: ${err.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
-          + `FIX: nothing to do right now — the system retries automatically. If this message repeats, escalate to IT with this card link.`
+          + `FIX: nothing to do right now — I retry automatically. If this message repeats, escalate to IT with this card link.`
         );
       } catch (inner) { logger.error('sharepoint-error-comment-failed', inner, { itemId }); }
     }

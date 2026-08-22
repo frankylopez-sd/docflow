@@ -12,46 +12,27 @@ const { stepHeader } = require('../../lib/util');
  * the Onboarding board's mirror columns (names, email, phone, start date,
  * license, location) populate themselves through that link. The welcome
  * blast then fires automatically on the new item.
+ *
+ * The per-candidate core lives in processHiredCandidate() so the
+ * reconcileIntake timer can replay hires whose webhook never arrived
+ * (mid-deploy bounce). It is idempotent: relation-column dedupe + the
+ * 'Imported from' comment marker keep replays from duplicating anything.
  */
 
-async function handleAtsSync(req) {
+/**
+ * Import one hired ATS candidate onto the Onboarding board (idempotent).
+ * @param {string} atsBoardId  the ATS board the candidate lives on
+ * @param {string|number} atsItemId  the ATS row id
+ * @param {{caughtUp?: boolean}} [opts]  caughtUp: this import was recovered by
+ *   the reconcile sweep, not the live webhook — say so honestly on the card.
+ * @returns {Promise<Object>} result body (imported / deduped / onboardingItemId)
+ */
+async function processHiredCandidate(atsBoardId, atsItemId, opts = {}) {
   const cfg = config.load();
-  const body = req.body || {};
-
-  // Monday URL-verification handshake
-  if (body.challenge) {
-    return { status: 200, body: { challenge: body.challenge } };
-  }
-
-  // Validate the signed Monday webhook JWT (same gate as the other receivers)
-  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || null;
-  try {
-    validateSignature(auth, cfg.monday.signingSecret);
-  } catch (err) {
-    if (err instanceof WebhookError) {
-      err.log({ requestPath: '/api/atsSync' });
-      return { status: err.response.status, body: err.response.body };
-    }
-    throw err;
-  }
-
   const ats = cfg.monday.atsIntake;
-  const event = body.event || {};
-  const atsItemId = event.pulseId || event.itemId;
-  const atsBoardId = String(event.boardId || '');
-  const boardCfg = ats.boards[atsBoardId];
-
-  // STRICT gate: status-column change on a known ATS board, to the hired label
-  const isColumnEvent = event.type === 'update_column_value' || event.type === 'change_column_value';
-  const label = (event.value && event.value.label && (event.value.label.text || event.value.label))
-    || (typeof event.value === 'string' ? event.value : null);
-
-  if (!atsItemId || !boardCfg || !isColumnEvent || event.columnId !== ats.statusColumn) {
-    return { status: 200, body: { ignored: true, reason: 'not an ATS status event' } };
-  }
-  if (label !== ats.hiredLabel) {
-    return { status: 200, body: { ignored: true, reason: `status is not "${ats.hiredLabel}"` } };
-  }
+  const caughtUp = Boolean(opts.caughtUp);
+  const boardCfg = ats.boards[String(atsBoardId)];
+  if (!boardCfg) throw new Error(`processHiredCandidate: unknown ATS board ${atsBoardId}`);
 
   /** Pull a usable email string out of an ATS row's email column. */
   const atsRowEmail = (row, colId) => {
@@ -65,7 +46,7 @@ async function handleAtsSync(req) {
   // Read the candidate from the ATS board
   const atsRow = await monday.readRow(atsBoardId, atsItemId);
   const candidateName = String(atsRow.name || '').trim();
-  logger.info('atsSync-hired-detected', { atsBoardId, atsItemId, candidateName, source: boardCfg.name });
+  logger.info('atsSync-hired-detected', { atsBoardId, atsItemId, candidateName, source: boardCfg.name, caughtUp });
 
   // Idempotency: if an Onboarding item already links this ATS row, skip.
   // (Exact-name matches without the link get linked instead of duplicated.)
@@ -75,7 +56,7 @@ async function handleAtsSync(req) {
     const linked = rel && (rel.linkedPulseIds || []).map((p) => String(p.linkedPulseId || p)).concat((rel.item_ids || []).map(String));
     if (linked && linked.includes(String(atsItemId))) {
       logger.event('atsSync-already-imported', { atsItemId, onboardingItemId: m.id });
-      return { status: 200, body: { imported: true, deduped: true, onboardingItemId: m.id } };
+      return { imported: true, deduped: true, onboardingItemId: m.id };
     }
   }
 
@@ -102,15 +83,15 @@ async function handleAtsSync(req) {
   if (sameName.length > 0 && !exact) {
     namesakeWarning = stepHeader(1, 'Namesake check')
       + `⚠️ Heads up — another hire on this board is also named "${candidateName}".\n\n`
-      + `WHY: the other card carries a different email address — this is a separate new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\n`
-      + `Your move\n`
-      + `    → confirm you're working on the right card before going further — both look identical in lists; tell them apart by Personal Email`;
+      + `WHY: the other card carries a different email address — I made this a separate new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\n`
+      + `Over to you\n`
+      + `    → confirm you're on the right card before going further — both look identical in lists; Personal Email tells them apart`;
   } else if (exact && sameName.length > 1) {
     // Several cards carry this name — say which one we touched and why.
     namesakeWarning = stepHeader(1, 'Namesake check')
       + `⚠️ Heads up — ${sameName.length} cards on this board are named "${candidateName}".\n\n`
-      + `WHY: this ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\n`
-      + `Your move\n`
+      + `WHY: I linked this ATS record to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\n`
+      + `Over to you\n`
       + `    → double-check you're on the right card before approving anything — in lists they look identical; Personal Email tells them apart`;
   }
 
@@ -162,10 +143,15 @@ async function handleAtsSync(req) {
   if (!alreadyNoted) {
     await monday.logAction(onboardingItemId,
       stepHeader(1, 'Imported')
-      + `Imported from ${boardCfg.name} — marked "${ats.hiredLabel}" · role preset ${boardCfg.jobTitle} (${boardCfg.payClass}). The ATS record is linked; names, email, phone and dates mirror in automatically.\n\n`
-      + `Next → the welcome comment with the hire-field checklist posts here.`,
-      `ATS item ${atsItemId} (board ${atsBoardId}) linked via ${boardCfg.relationColumn}; job title + pay class preset from the source board.`
+      + `Imported from ${boardCfg.name} — marked "${ats.hiredLabel}". I've linked the ATS record and preset the role: ${boardCfg.jobTitle} (${boardCfg.payClass}). Names, email, phone and dates mirror in on their own.\n`
+      + (caughtUp ? `That "Hired" click landed while I was updating myself — I caught it on my sweep. Nothing lost.\n` : '')
+      + `\nNext → I post the welcome comment with the hire-field checklist.`,
+      `ATS item ${atsItemId} (board ${atsBoardId}) linked via ${boardCfg.relationColumn}; job title + pay class preset from the source board${caughtUp ? '; recovered by reconcileIntake' : ''}.`
     ).catch((err) => logger.warn('atsSync-onboarding-log-failed', { onboardingItemId, error: err.message }));
+  }
+
+  if (caughtUp) {
+    logger.event('reconcile-caught-up', { atsBoardId, atsItemId, onboardingItemId, candidateName, source: boardCfg.name });
   }
 
   if (namesakeWarning) {
@@ -176,12 +162,55 @@ async function handleAtsSync(req) {
 
   await monday.logAction(atsItemId,
     stepHeader(1, 'Onboarding started')
-    + `Onboarding started for ${candidateName} — their Onboarding record was created and linked automatically.\n\n`
-    + `Next → the welcome packet is prepared on their Onboarding card.`,
+    + `Onboarding started for ${candidateName} — I created their Onboarding record and linked it here.\n\n`
+    + `Next → I prepare the welcome packet on their Onboarding card.`,
     `Onboarding item ${onboardingItemId} created/linked on board ${cfg.monday.onboardingBoardId} by atsSync.`
   ).catch((err) => logger.warn('atsSync-ats-log-failed', { atsItemId, error: err.message }));
 
-  return { status: 200, body: { imported: true, onboardingItemId, candidateName, source: boardCfg.name } };
+  return { imported: true, onboardingItemId, candidateName, source: boardCfg.name };
+}
+
+async function handleAtsSync(req) {
+  const cfg = config.load();
+  const body = req.body || {};
+
+  // Monday URL-verification handshake
+  if (body.challenge) {
+    return { status: 200, body: { challenge: body.challenge } };
+  }
+
+  // Validate the signed Monday webhook JWT (same gate as the other receivers)
+  const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || null;
+  try {
+    validateSignature(auth, cfg.monday.signingSecret);
+  } catch (err) {
+    if (err instanceof WebhookError) {
+      err.log({ requestPath: '/api/atsSync' });
+      return { status: err.response.status, body: err.response.body };
+    }
+    throw err;
+  }
+
+  const ats = cfg.monday.atsIntake;
+  const event = body.event || {};
+  const atsItemId = event.pulseId || event.itemId;
+  const atsBoardId = String(event.boardId || '');
+  const boardCfg = ats.boards[atsBoardId];
+
+  // STRICT gate: status-column change on a known ATS board, to the hired label
+  const isColumnEvent = event.type === 'update_column_value' || event.type === 'change_column_value';
+  const label = (event.value && event.value.label && (event.value.label.text || event.value.label))
+    || (typeof event.value === 'string' ? event.value : null);
+
+  if (!atsItemId || !boardCfg || !isColumnEvent || event.columnId !== ats.statusColumn) {
+    return { status: 200, body: { ignored: true, reason: 'not an ATS status event' } };
+  }
+  if (label !== ats.hiredLabel) {
+    return { status: 200, body: { ignored: true, reason: `status is not "${ats.hiredLabel}"` } };
+  }
+
+  const result = await processHiredCandidate(atsBoardId, atsItemId, { caughtUp: false });
+  return { status: 200, body: result };
 }
 
 module.exports = async function (context, req) {
@@ -194,3 +223,4 @@ module.exports = async function (context, req) {
   }
 };
 module.exports.handleAtsSync = handleAtsSync;
+module.exports.processHiredCandidate = processHiredCandidate;
