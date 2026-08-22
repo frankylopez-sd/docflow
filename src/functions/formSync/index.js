@@ -137,19 +137,35 @@ async function handleFormSync(req) {
 
   await monday.updateItemColumns(cfg.monday.onboardingBoardId, hireId, values);
 
-  // Advance the journey: ③ HR completes the remaining hire fields
-  await monday.updateItemStatus(cfg.monday.onboardingBoardId, hireId, cfg.monday.statusLabels.fieldsNeeded).catch((err) => {
+  // Where does the card go? Forms can arrive any time. If the hire already
+  // signed (card sits at "⑥ ✍️ Form Pending"), this form closes the second
+  // gate → advance to Waiting for Background. Otherwise it's the normal
+  // pre-sign path: ③ HR completes the remaining hire fields.
+  const rowStatus = await monday.readRow(cfg.monday.onboardingBoardId, hireId)
+    .then((r) => String(r.columns[cfg.monday.columns.status] || r.byTitle['Onboarding Status'] || ''))
+    .catch(() => '');
+  const postSign = rowStatus === cfg.monday.statusLabels.signedFormPending;
+  const nextStatus = postSign
+    ? cfg.monday.statusLabels.waitingBackground
+    : cfg.monday.statusLabels.fieldsNeeded;
+  await monday.updateItemStatus(cfg.monday.onboardingBoardId, hireId, nextStatus).catch((err) => {
     logger.warn('formSync-status-advance-failed', { hireId, error: err.message });
   });
 
   // Visible trail on the hire record (notifies subscribers)
   const notes = get(fc.notes);
   await monday.logAction(hireId,
-    stepHeader(2, '📥 HIRE DETAILS')
-    + `WHAT HAPPENED: Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
-    + (notes ? `\n\nCandidate notes: ${notes}` : '')
-    + `\n\nYOUR NEXT MOVE: fill the remaining ADP fields, then check ☑ Details Verified.`,
-    `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to step ③.`
+    (postSign
+      ? stepHeader(9, '📥 FORM RECEIVED')
+      + `WHAT HAPPENED: Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
+      + (notes ? `\n\nCandidate notes: ${notes}` : '')
+      + `\n\nTHE THREE GATES:\n    ✍️ Offer packet — SIGNED ✓\n    📥 New Hire form — RECEIVED ✓\n    🔎 Background check — pending (tracked on the Background Checks board)\n\n`
+      + `NEXT: status moves to "${nextStatus}". Flip to "${cfg.monday.statusLabels.complete}" when the background check clears.`
+      : stepHeader(2, '📥 HIRE DETAILS')
+      + `WHAT HAPPENED: Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
+      + (notes ? `\n\nCandidate notes: ${notes}` : '')
+      + `\n\nYOUR NEXT MOVE: fill the remaining ADP fields, then check ☑ Details Verified.`),
+    `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to "${nextStatus}".`
   ).catch((err) => logger.warn('formSync-update-post-failed', { hireId, error: err.message }));
 
   logger.event('formSync-complete', { formItemId: itemId, hireId, fields: Object.keys(values).length });

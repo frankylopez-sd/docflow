@@ -160,7 +160,9 @@ describe('Azure Function entrypoints', () => {
     // Adobe webhook messages carry only the agreementId — archiveToBlob must
     // resolve the Monday item itself.
     await archiveToBlob(ctx, { agreementId: 'AGR-42' });
-    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.complete });
+    // Signing alone closes only its own gate — no form yet, so the card
+    // parks at "Form Pending" instead of jumping to Done.
+    expect(backend.rows[555].written.status).toEqual({ label: config.load().monday.statusLabels.signedFormPending });
     expect(backend.rows[555].written.link_signed).toMatchObject({
       url: expect.stringContaining('pdf-archive'),
     });

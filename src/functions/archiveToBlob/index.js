@@ -73,7 +73,7 @@ async function processArchive(context, queueItem) {
     const currentStatus = await monday.readRow(boardId, itemId).then(r =>
       r.columns[cfg.monday.columns.status] || r.byTitle['Onboarding Status']
     ).catch(() => null);
-    if (currentStatus && /done|complete|signed|archived/i.test(String(currentStatus))) {
+    if (currentStatus && /done|complete|signed|archived|form pending|waiting for background/i.test(String(currentStatus))) {
       logger.event('archiveToBlob-status-already-complete', { itemId, agreementId, currentStatus });
       context.res = { status: 200, body: { itemId, status: 'status already final (skipping duplicate)' } };
       return;
@@ -119,8 +119,15 @@ async function processArchive(context, queueItem) {
       `Signed Packet - ${String(employeeName || 'hire').replace(/-/g, ' ')}.pdf`
     );
 
-    // Final status: ⑦ Onboarding Complete + offer column ⑥ Signed & Archived
-    await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.complete).catch(err => {
+    // Signing closes ITS gate only — the card advances by which candidate
+    // actions are still open: New Hire form pending → "⑥ ✍️ Form Pending";
+    // form already in → "⑦ 🎉 Waiting for Background" (the BG board owns
+    // that gate; a person flips to Done when the result clears).
+    const formReceived = await monday.hasUpdateContaining(itemId, 'Welcome form received').catch(() => false);
+    const postSignStatus = formReceived
+      ? cfg.monday.statusLabels.waitingBackground
+      : cfg.monday.statusLabels.signedFormPending;
+    await monday.updateItemStatus(boardId, itemId, postSignStatus).catch(err => {
       logger.warn('archiveToBlob-final-status-update-failed', { itemId, error: err.message });
     });
     await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.signed).catch(err => {
@@ -158,24 +165,32 @@ async function processArchive(context, queueItem) {
       logger.warn('archiveToBlob-adp-readiness-failed', { itemId, error: err.message });
     }
 
+    const gateBoard =
+      `    ✍️ Offer packet — SIGNED ✓\n`
+      + `    📥 New Hire form — ${formReceived ? 'RECEIVED ✓' : 'pending (candidate has the link)'}\n`
+      + `    🔎 Background check — pending (tracked on the Background Checks board)`;
+
     await monday.logAction(itemId,
       stepHeader(9, '✅ SIGNED & FILED')
       + `WHAT HAPPENED: Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}\n\n`
-      + `NEXT: nothing — automatic. The manual next-steps checklist posts here next.`,
+      + `THE THREE GATES:\n${gateBoard}\n\n`
+      + (formReceived
+        ? `NEXT: nothing — automatic. Status moves to "${postSignStatus}". A person flips to "${cfg.monday.statusLabels.complete}" when the background check clears.`
+        : `NEXT: nothing — automatic. Status moves to "${postSignStatus}". When the candidate's form arrives it syncs itself and the card advances to "${cfg.monday.statusLabels.waitingBackground}".`),
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
-    // Post manual-steps checklist on Done status
+    // Manual-steps checklist — what remains for a person after signing
     await monday.logAction(itemId,
-      stepHeader(10, '🎉 DONE')
-      + `WHAT HAPPENED: the automated flow is finished — everything from here is a person's move.\n\n`
+      stepHeader(10, '📋 WHAT REMAINS')
+      + `WHAT HAPPENED: the signing flow is finished — these are the remaining moves.\n\n`
       + `📋 NEXT STEPS (manual):\n`
-      + `    1. Background check — order from vendor (Checkr/Sterling)\n`
+      + `    1. Background check — order from vendor; result lands on the Background Checks board\n`
       + `    2. ADP profile — create user account in ADP\n`
       + `    3. IT provisioning — email credentials, create Slack account, set up device\n`
       + `    4. TalentLMS enrollment — add to training courses\n`
       + `    5. Active Employees — add hire to the roster\n\n`
-      + `This card is "${cfg.monday.statusLabels.complete}". Check the Signed PDF and agreement links above, then forward to your team.`
+      + `Flip this card to "${cfg.monday.statusLabels.complete}" when the background check clears.`
     ).catch(err => logger.warn('archiveToBlob-next-steps-failed', { itemId, error: err.message }));
 
     // Congrats email: the candidate's own copy of the fully-signed letter,

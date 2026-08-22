@@ -198,7 +198,9 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(archiveKey).toBeDefined();
     expect(Buffer.compare(storageMock.__store.get(archiveKey).data, SIGNED_BYTES)).toBe(0);
 
-    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.complete });
+    // Signing alone closes only its own gate — no form yet, so the card
+    // parks at "Form Pending" instead of jumping to Done.
+    expect(backend.rows[555].written.status).toEqual({ label: statusLabels.signedFormPending });
     expect(backend.rows[555].written[offerCol]).toEqual({ label: offerLabels.signed });
     expect(backend.rows[555].written.link_signed).toMatchObject({ url: archived.archiveUrl });
   }, 20000); // full nine-stage walk incl. both signing gates

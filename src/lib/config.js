@@ -143,6 +143,9 @@ function load(options = {}) {
         outForSignature: env.MONDAY_STATUS_SIGNING || '⑤ ✉️ Sent',
         awaitingReview: env.MONDAY_STATUS_AWAITING_REVIEW || '④ 👤 Review',
         archiving: env.MONDAY_STATUS_ARCHIVING || '⑥ ⚙️ Archiving',
+        // Post-signing tracking: each candidate action closes its own gate.
+        signedFormPending: env.MONDAY_STATUS_SIGNED_FORM_PENDING || '⑥ ✍️ Form Pending',
+        waitingBackground: env.MONDAY_STATUS_WAITING_BG || '⑦ 🎉 Waiting for Background',
         complete: env.MONDAY_STATUS_COMPLETE || '⑦ 🎉 Done',
         missingFields: env.MONDAY_STATUS_MISSING || 'Missing Required Fields',
         createNewHire: env.MONDAY_STATUS_CREATE_NEW_HIRE || 'Create New Hire',
@@ -307,7 +310,8 @@ function load(options = {}) {
   const sl = cfg.monday.statusLabels;
   cfg.monday.statusOrder = [
     sl.welcome, sl.awaitingInfo, sl.fieldsNeeded, sl.docsInProgress,
-    sl.awaitingReview, sl.outForSignature, sl.archiving, sl.complete,
+    sl.awaitingReview, sl.outForSignature, sl.archiving,
+    sl.signedFormPending, sl.waitingBackground, sl.complete,
   ];
   const ol = cfg.monday.offerLabels;
   cfg.monday.offerOrder = [
