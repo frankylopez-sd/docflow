@@ -5,3 +5,10 @@ coverage/
 *.zip
 .DS_Store
 deploy-stage/
+
+# never commit security recon/secrets to this public repo
+docs/security/
+*recon*
+*.secret
+gsec.txt
+local.settings.json
