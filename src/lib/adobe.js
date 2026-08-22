@@ -288,7 +288,9 @@ async function createEnvelope(pdf, signers, opts = {}) {
     // Signing link dies the day the offer letter says it expires — one
     // source of truth (the card's "Offer Expires" date), letter and link
     // always agree. Adobe wants ISO-8601 with time; use end of that day UTC.
-    ...(opts.expirationDate ? { expirationTime: `${opts.expirationDate}T23:59:59Z` } : {}),
+    // End of the stated day in Pacific (UTC-7 PDT) so the link doesn't die at
+    // ~4pm PT — offset keeps letter text and link agreeing on the calendar day.
+    ...(opts.expirationDate ? { expirationTime: `${opts.expirationDate}T23:59:59-07:00` } : {}),
     // We own ALL candidate email: our Email 1 carries the signing link, our
     // Email 2 carries the signed copy. Adobe stays silent (industry-standard
     // custom-branded sending). Set ADOBE_SUPPRESS_EMAILS=false to let Adobe
