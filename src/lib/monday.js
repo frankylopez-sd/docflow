@@ -162,6 +162,7 @@ async function fetchHireData(boardId, itemId) {
     payClass: get(c.payClass),
     flsaStatus: get(c.flsaStatus),
     workerType: get(c.workerType),
+    offerExpires: get(c.offerExpires, 'Offer Expires'),
     startDate: get(c.startDate, 'Hired Start Date') || get(null, 'Estimated Start Date')
       || get(cfg.monday.formSync.targetColumns.startDate),
   };

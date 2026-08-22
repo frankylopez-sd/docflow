@@ -409,6 +409,37 @@ describe('generatePDF merge-data contract', () => {
     }
   });
 
+  test('processGenerate merges long-form offerDate and offerExpirationDate when Offer Expires is set', async () => {
+    const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
+    try {
+      await generatePDF.processGenerate(makeContext(), { ...FULL_HIRE_MSG, offerExpires: '2026-09-15' });
+      const mergeData = spy.mock.calls[0][0];
+      expect(mergeData.offerExpirationDate).toBe('September 15, 2026');
+      // offerDate = generation date, en-US long form
+      expect(mergeData.offerDate).toBe(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+      // startDate stays in its existing (ISO) format for backward compatibility
+      expect(mergeData.startDate).toBe('2026-09-01');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('processGenerate falls back to "5 business days" wording when Offer Expires is empty', async () => {
+    const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
+    try {
+      await generatePDF.processGenerate(makeContext(), { ...FULL_HIRE_MSG });
+      expect(spy.mock.calls[0][0].offerExpirationDate).toBe('5 business days from the offer date');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('formatLongDate parses date-only strings without UTC off-by-one', () => {
+    expect(generatePDF.formatLongDate('2026-01-01')).toBe('January 1, 2026');
+    expect(generatePDF.formatLongDate('2026-12-31')).toBe('December 31, 2026');
+    expect(generatePDF.formatLongDate('not-a-date')).toBe('not-a-date');
+  });
+
   test('processGenerate REFUSES to build when startDate is absent (never prints today)', async () => {
     const spy = jest.spyOn(adobe, 'generateOfferLetter').mockResolvedValue(Buffer.from('%PDF spy'));
     try {

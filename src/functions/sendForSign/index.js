@@ -163,8 +163,19 @@ module.exports = async function (context, queueItem) {
     progress.setPhase(`uploading ${1 + packetDocs.length} document(s) to Adobe and building the agreement`);
     logger.info('sendForSign-creating-agreement', { itemId, signerCount: signers.length, packetDocs: packetDocs.length });
 
+    // The signing link expires the day the offer does (card's "Offer Expires"
+    // date). Empty column → no expiration set (Adobe account default).
+    const offerExpires = await monday.readRow(boardId, itemId)
+      .then((r) => {
+        const v = r.columns[cfg.monday.columns.offerExpires] || r.byTitle['Offer Expires'];
+        const d = typeof v === 'string' ? v : (v && (v.date || v.text)) || null;
+        return d && /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : null;
+      })
+      .catch(() => null);
+
     // Create Adobe Sign agreement
     const agreementResult = await adobe.createSigningAgreement({
+      expirationDate: offerExpires,
       documentUrl: pdfUrl,
       fileName: `offer-${firstName}-${lastName}.pdf`,
       signers: signers,

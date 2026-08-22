@@ -112,6 +112,8 @@ function load(options = {}) {
         payClass: env.MONDAY_COL_PAY_CLASS || 'dropdown_mm65aswt',
         flsaStatus: env.MONDAY_COL_FLSA_STATUS || 'dropdown_mm6576ra',
         workerType: env.MONDAY_COL_WORKER_TYPE || 'dropdown_mm65jpby',
+        // Offer expiration date (RPH letter); empty -> fallback wording
+        offerExpires: env.MONDAY_COL_OFFER_EXPIRES || 'date_mm6f6rma',
         // Offer lifecycle column (HR review gate) and its label vocabulary
         offerStatus: env.MONDAY_COL_OFFER_STATUS || 'color_mm63ewwy',
       },

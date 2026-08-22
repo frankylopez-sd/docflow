@@ -44,6 +44,21 @@ function selectTemplate({ adpJobTitle, payClass, flsaStatus, workerType }) {
   return process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER || 'offer-letter-clerk.docx';
 }
 
+/**
+ * Format a date (Date or "YYYY-MM-DD" string) as en-US long form,
+ * e.g. "August 21, 2026". Date-only strings are parsed as local-date
+ * components to avoid UTC off-by-one shifts.
+ */
+function formatLongDate(value) {
+  let d = value;
+  if (typeof value === 'string') {
+    const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  }
+  if (!(d instanceof Date) || isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
 async function processGenerate(context, queueItem) {
   const cfg = config.load();
 
@@ -54,7 +69,7 @@ async function processGenerate(context, queueItem) {
   }
 
   try {
-    let { boardId, itemId, firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, payClass, flsaStatus, workerType, startDate } = queueItem;
+    let { boardId, itemId, firstName, lastName, workEmail, adpJobTitle, adpDepartment, supervisor, payRate, payFrequency, payClass, flsaStatus, workerType, startDate, offerExpires } = queueItem;
 
     logger.info('generatePDF-start', { itemId });
 
@@ -74,6 +89,7 @@ async function processGenerate(context, queueItem) {
       flsaStatus = flsaStatus || hire.flsaStatus;
       workerType = workerType || hire.workerType;
       startDate = startDate || hire.startDate;
+      offerExpires = offerExpires || hire.offerExpires;
       logger.info('generatePDF-hydrated-from-monday', { itemId });
     }
 
@@ -134,6 +150,13 @@ async function processGenerate(context, queueItem) {
       frequency: payFrequency,
       startDate,
       generatedDate: new Date().toISOString().split('T')[0],
+      // Long-form dates for the RPH letter. startDate stays as-is (existing
+      // templates render it verbatim); these are NEW keys, not replacements.
+      offerDate: formatLongDate(new Date()),
+      startDateLong: startDate ? formatLongDate(startDate) : '',
+      offerExpirationDate: offerExpires
+        ? formatLongDate(offerExpires)
+        : '5 business days from the offer date',
       // Adobe Sign text tags — Sign converts these into real signature/date
       // fields. Candidate mode: only the hire signs (signer1); serial mode
       // maps HR/Manager/Employee to signers 1/2/3.
@@ -291,3 +314,4 @@ async function processGenerate(context, queueItem) {
 module.exports = processGenerate;
 module.exports.processGenerate = processGenerate;
 module.exports.selectTemplate = selectTemplate;
+module.exports.formatLongDate = formatLongDate;

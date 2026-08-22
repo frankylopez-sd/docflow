@@ -285,6 +285,10 @@ async function createEnvelope(pdf, signers, opts = {}) {
     signatureType: 'ESIGN',
     state: 'IN_PROCESS',
     ...(opts.message ? { message: opts.message } : {}),
+    // Signing link dies the day the offer letter says it expires — one
+    // source of truth (the card's "Offer Expires" date), letter and link
+    // always agree. Adobe wants ISO-8601 with time; use end of that day UTC.
+    ...(opts.expirationDate ? { expirationTime: `${opts.expirationDate}T23:59:59Z` } : {}),
     // We own ALL candidate email: our Email 1 carries the signing link, our
     // Email 2 carries the signed copy. Adobe stays silent (industry-standard
     // custom-branded sending). Set ADOBE_SUPPRESS_EMAILS=false to let Adobe
@@ -483,7 +487,11 @@ async function _resolveTemplateAsset(templateKey, force = false) {
 async function generateOfferLetter(mergeData, opts = {}) {
   const schema = [
     'firstName', 'lastName', 'jobTitle', 'department',
-    'email', 'supervisor', 'compensation', 'frequency', 'startDate', 'generatedDate'
+    'email', 'supervisor', 'compensation', 'frequency', 'startDate', 'generatedDate',
+    // RPH letter fields — optional so older callers/templates keep working
+    { name: 'offerDate', required: false },
+    { name: 'offerExpirationDate', required: false },
+    { name: 'startDateLong', required: false },
   ];
   const templateKey = opts.templateKey
     || process.env.ADOBE_TEMPLATE_BLOB_OFFER_LETTER
@@ -555,7 +563,7 @@ async function getSigningUrl(agreementId, opts = {}) {
  * @returns {Promise<{id:string, signers:Array}>}
  */
 async function createSigningAgreement(opts) {
-  const { documentUrl, fileName, signers, message, dueDate, extraDocuments } = opts;
+  const { documentUrl, fileName, signers, message, dueDate, extraDocuments, expirationDate } = opts;
 
   if (!documentUrl) throw new Error('createSigningAgreement: documentUrl is required');
   if (!signers || !Array.isArray(signers)) throw new Error('createSigningAgreement: signers array is required');
@@ -566,6 +574,7 @@ async function createSigningAgreement(opts) {
     name: `${hasPacket ? 'Hire Packet' : 'Offer Letter'} - ${signers[signers.length - 1].name || 'Employee'}`,
     message: message || 'Please review and sign this document',
     extraDocuments,
+    expirationDate,
   });
 
   return {
