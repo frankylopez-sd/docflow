@@ -192,7 +192,9 @@ describe('happy path: Monday -> PDF -> HR approval -> Sign -> Archive', () => {
     expect(archived.itemId).toBe('555');
     expect(archived.archiveUrl).toContain('teststore.blob.core.windows.net/pdf-archive/');
 
-    const archiveKey = [...storageMock.__store.keys()].find((k) => k.includes('|pdf-archive|'));
+    // The archive container also holds the claimOnce lock blob (locks/…) —
+    // assert on the signed PDF itself, not whichever blob landed first.
+    const archiveKey = [...storageMock.__store.keys()].find((k) => k.includes('|pdf-archive|') && k.includes('signed-offer'));
     expect(archiveKey).toBeDefined();
     expect(Buffer.compare(storageMock.__store.get(archiveKey).data, SIGNED_BYTES)).toBe(0);
 

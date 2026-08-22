@@ -25,6 +25,7 @@ const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
 const sharepoint = require('../../lib/sharepoint');
 const { downloadSigned } = require('../downloadSigned');
+const { stepHeader } = require('../../lib/util');
 
 /** Find the onboarding item that owns this agreementId. */
 async function findItemByAgreementId(agreementId) {
@@ -143,7 +144,9 @@ async function processSharePointUpload(msg) {
       }
       try {
         await monday.logAction(itemId,
-          `🗂️ Signed packet copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}`
+          stepHeader(9, '🗂️ FILED TO SHAREPOINT')
+          + `WHAT HAPPENED: the signed packet was copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}\n\n`
+          + `NEXT: nothing — automatic. This was the last filing step for the signed packet.`
         );
       } catch (_) { /* comment is best-effort */ }
     } catch (mondayErr) {
@@ -181,10 +184,11 @@ async function processSharePointUpload(msg) {
     // column: the hire is already ⑦ Done and the signed PDF is safe in blob).
     if (itemId) {
       const httpCode = err.response ? err.response.status : null;
-      const apiBody = err.response && err.response.data ? JSON.stringify(err.response.data).slice(0, 300) : null;
+      const apiBody = require('../../lib/util').apiBodySnippet(err);
       try {
         await monday.logAction(itemId,
-          `❌ SharePoint copy failed. The signed offer is still safe — see the Signed PDF link on this card.\n\n`
+          stepHeader(9, '❌ SHAREPOINT COPY FAILED')
+          + `❌ SharePoint copy failed. The signed offer is still safe — see the Signed PDF link on this card.\n\n`
           + `SYSTEM: SharePoint (Graph upload)\nERROR: ${err.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
           + `FIX: nothing to do right now — the system retries automatically. If this message repeats, escalate to IT with this card link.`
         );

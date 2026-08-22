@@ -5,6 +5,7 @@ const logger = require('../../lib/logger');
 const adobe = require('../../lib/adobe');
 const blob = require('../../lib/blob');
 const monday = require('../../lib/monday');
+const { stepHeader } = require('../../lib/util');
 
 /**
  * generatePDF: Queue-triggered function that generates offer letter PDF
@@ -97,9 +98,10 @@ async function processGenerate(context, queueItem) {
       await monday.updateItemStatus(boardId, itemId, cfg.monday.statusLabels.missingFields).catch(() => {});
       await monday.updateOfferStatus(boardId, itemId, cfg.monday.offerLabels.moreInfo).catch(() => {});
       await monday.logAction(itemId,
-        `✋ ${missingFields.length === 1 ? 'One field is' : `${missingFields.length} fields are`} still empty:\n`
+        stepHeader(2, '✋ HIRE DETAILS')
+        + `WHAT HAPPENED: ${missingFields.length === 1 ? 'one field is' : `${missingFields.length} fields are`} still empty:\n`
         + missingFields.map((f) => `    ${f}`).join('\n')
-        + `\n\nNEXT: fill ${missingFields.length === 1 ? 'it' : 'them'} in, then check ☑ Details Verified. The letter builds right away.`
+        + `\n\nYOUR NEXT MOVE: fill ${missingFields.length === 1 ? 'it' : 'them'} in, then check ☑ Details Verified. The letter builds right away.`
       ).catch(() => {});
       context.res = { status: 200, body: { itemId, generated: false, missingFields } };
       return; // no throw — retries can't fill in fields, a person can
@@ -114,7 +116,9 @@ async function processGenerate(context, queueItem) {
     });
 
     await monday.logAction(itemId,
-      `🛠️ Writing ${firstName || 'the'}'s offer letter — about a minute.`
+      stepHeader(3, '🛠️ WRITING LETTER')
+      + `WHAT HAPPENED: writing ${firstName || 'the hire'}'s offer letter — about a minute.\n\n`
+      + `NEXT: nothing — automatic. The finished letter posts here with a five-point checklist.`
     ).catch(err => logger.warn('generatePDF-start-notify-failed', { itemId, error: err.message }));
 
     // Prepare merge data for Adobe template
@@ -214,14 +218,15 @@ async function processGenerate(context, queueItem) {
     });
 
     await monday.logAction(itemId,
-      `📄 The offer letter is ready. ${attached.attached ? 'It\'s attached to this card — open the 📄 Offer Letter column to read it.' : 'Open the PDF Document link to read it.'}\n\n`
+      stepHeader(3, '📄 LETTER BUILT')
+      + `WHAT HAPPENED: the offer letter is ready. ${attached.attached ? 'It\'s attached to this card — open the 📄 Offer Letter column to read it.' : 'Open the PDF Document link to read it.'}\n\n`
       + `Check these five:\n`
       + `    Name — ${firstName} ${lastName}\n`
       + `    Role — ${adpJobTitle}, ${adpDepartment}\n`
       + `    Pay — ${payRate} ${payFrequency}\n`
       + `    Start — ${startDate}\n`
       + `    Supervisor — ${supervisor}\n\n`
-      + `NEXT: all correct → select "${cfg.monday.offerLabels.approved}". That builds the signing packet and shows you the exact email. Nothing sends yet.\n`
+      + `YOUR NEXT MOVE: all correct → select "${cfg.monday.offerLabels.approved}". That builds the signing packet and shows you the exact email. Nothing sends yet.\n`
       + `Something off → fix the field; the letter rebuilds itself. Or "${cfg.monday.offerLabels.denied}" to stop.`,
       `Adobe Document Generation merged template "${templateKey}" with the hire record; PDF stored in pdf-temp blob (24h link) and linked on this item.`
     ).catch(err => logger.warn('generatePDF-notify-failed', { itemId, error: err.message }));
@@ -246,9 +251,11 @@ async function processGenerate(context, queueItem) {
         + `Questions? Reply here anytime.\n\n`
         + `The MedWatchers HR Team`, previewFill);
       await monday.logAction(itemId,
-        `📧 ${firstName} will receive this. Preview only — not sent.\n\n`
-        + `— — — — — — — — — —\nSubject: ${pvSubject}\n\n${pvBody}\n— — — — — — — — — —\n\n`
-        + `NEXT: looks right → select "${cfg.monday.offerLabels.approved}". To change the wording, edit the "package" row on the Email Templates board.`
+        stepHeader(3, '📧 EMAIL WORDING')
+        + `WHAT HAPPENED: the welcome email for ${firstName} is drafted — nothing has been sent.\n\n`
+        + `Subject: ${pvSubject}\n\n`
+        + `The exact, word-for-word email (with the real signing link) appears here at STEP 6, before anything goes out.\n\n`
+        + `YOUR NEXT MOVE: letter looks right → select "${cfg.monday.offerLabels.approved}". To change the email wording, edit the "package" row on the Email Templates board.`
       ).catch(() => {});
     } catch (err) {
       logger.warn('generatePDF-email-preview-failed', { itemId, error: err.message });
@@ -272,13 +279,14 @@ async function processGenerate(context, queueItem) {
     const attempt = context?.bindingData?.dequeueCount;
     if (queueItem?.itemId && (!attempt || Number(attempt) <= 1)) {
       const httpCode = error.response ? error.response.status : null;
-      const apiBody = error.response && error.response.data ? JSON.stringify(error.response.data).slice(0, 300) : null;
+      const apiBody = require('../../lib/util').apiBodySnippet(error);
       const system = /Merge data missing/i.test(error.message) ? 'Monday (hire fields incomplete)'
         : /Asset Not Found|documentgeneration|asset/i.test(String(error.message) + (apiBody || '')) ? 'Adobe PDF Services (template/asset)'
         : /blob|storage/i.test(error.message) ? 'Azure storage'
         : httpCode ? 'Adobe PDF Services API' : 'Azure engine (generatePDF)';
       await monday.logAction(queueItem.itemId,
-        `❌ Offer letter generation failed.\n\n`
+        stepHeader(3, '❌ LETTER FAILED')
+        + `❌ Offer letter generation failed.\n\n`
         + `SYSTEM: ${system}\n`
         + `ERROR: ${error.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
         + `FIX: address the cause above, then re-check ☑ Details Verified. (The system also retries automatically.)`

@@ -8,6 +8,54 @@ no filler, no re-explaining the whole flow in every comment. Name the specific f
 and labels — never "the employer fields". Tense matches timing: past when done,
 present when running, `NEXT:` for what follows.
 
+## The step header (every HR-facing card comment opens with it)
+
+Every `logAction` comment starts with a uniform header locating the card in the
+10-step packet flow:
+
+```
+▶ STEP X of 10 — SHORT STATE NAME
+──────────────────────────────
+WHAT HAPPENED: one sentence, past/present tense matching timing.
+
+YOUR NEXT MOVE: what the HR person does now (labels quoted from config).
+```
+
+- Machine-automatic steps replace `YOUR NEXT MOVE:` with
+  `NEXT: nothing — automatic. <what the machine does next>`.
+- Optionally end with `WHY THIS MATTERS: …` where the reason isn't obvious
+  (last-check gates, guards).
+- Error comments keep the SYSTEM:/ERROR:/FIX: skeleton under the header, with
+  the state name = the failing step (e.g. `▶ STEP 3 of 10 — ❌ LETTER FAILED`).
+- Guard/no-op comments (⚠️/ℹ️) keep `WHY:` + the way out, under a header that
+  shows the step the card is ACTUALLY at — not the step someone dragged to.
+- The state name line keeps the emoji lexicon, e.g. `▶ STEP 5 of 10 — 📦 PACKET BUILT`.
+- Live progress ticks (startProgress one-liners like `🛠️ 30s — …`) stay short,
+  NO header.
+
+**The 10 steps** (canonical packet flow):
+
+| Step | State | Who |
+|------|-------|-----|
+| 1 | Imported / Welcome — hire lands on the board | machine |
+| 2 | Hire Details — the 9 required fields (+ form sync / ADP fields) | person |
+| 3 | Letter Built — review the PDF | machine → person |
+| 4 | Package Approved — HR gate 1 | person |
+| 5 | Packet Built — Adobe agreement assembled | machine |
+| 6 | Ready to Send — the exact email preview | person |
+| 7 | Sent — the send button fired | machine |
+| 8 | Signing — out with the candidate | candidate |
+| 9 | Signed & Filed — archive, SharePoint, confirmations | machine |
+| 10 | Done — manual next steps | person |
+
+## The email appears ONCE
+
+The full welcome-email body appears exactly once in a card's thread: the STEP 6
+"Ready to Send" preview. The STEP 7 sent confirmation never repeats the body —
+it says `The email you previewed at STEP 6 was sent verbatim.` plus the
+recipient and the HR reference links. Earlier steps may show the Subject line
+only. Two copies of the same email in one thread means one of them is drift.
+
 ## Message anatomy (card comments)
 
 Every comment has up to four parts, in this order:
@@ -46,7 +94,10 @@ Every comment has up to four parts, in this order:
 
 ## The label vocabulary (fixed — the only caps labels allowed)
 
-- `NEXT:` — what follows (replaces "Your move", "Next:", "What's next", etc.)
+- `WHAT HAPPENED:` — the header's one-sentence event line
+- `YOUR NEXT MOVE:` — what the HR person does now (human steps)
+- `NEXT:` — what follows automatically (`NEXT: nothing — automatic. …` on machine steps)
+- `WHY THIS MATTERS:` — optional closing line when the reason isn't obvious
 - `WHY:` — the exact reason a guard fired (column ids allowed here)
 - `FIX:` — the exact way out of an error
 - `SYSTEM:` / `ERROR:` — error skeleton fields (see below)

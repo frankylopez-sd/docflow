@@ -111,4 +111,48 @@ function startProgress(post, state, intervalMs = 30000) {
   };
 }
 
-module.exports = { sleep, retry, RateLimiter, startProgress };
+/**
+ * Human-readable snippet of an HTTP error's response body for card comments.
+ * Decodes Buffers (arraybuffer responses print as {"type":"Buffer",...} noise
+ * otherwise) and caps length.
+ */
+function apiBodySnippet(err, max = 300) {
+  const raw = err && err.response && err.response.data;
+  if (raw == null) return null;
+  let text;
+  if (Buffer.isBuffer(raw)) text = raw.toString('utf8');
+  else if (typeof raw === 'string') text = raw;
+  else if (raw.type === 'Buffer' && Array.isArray(raw.data)) text = Buffer.from(raw.data).toString('utf8');
+  else text = JSON.stringify(raw);
+  return text.slice(0, max);
+}
+
+// Field keys HR should never see raw (e.g. suiSdiTaxCode). Overrides cover
+// acronym-heavy keys; everything else is de-camelCased into plain words.
+const FRIENDLY_FIELD_OVERRIDES = {
+  suiSdiTaxCode: 'SUI/SDI tax code',
+  flsaStatus: 'FLSA status',
+  workersCompStatus: "Workers' comp status",
+  workersCompJobClass: "Workers' comp job class",
+};
+
+/** Turn a camelCase field key into a human-readable name for card comments. */
+function friendlyFieldName(field) {
+  if (FRIENDLY_FIELD_OVERRIDES[field]) return FRIENDLY_FIELD_OVERRIDES[field];
+  return String(field)
+    .replace(/([A-Z])/g, ' $1')
+    .toLowerCase()
+    .replace(/^./, (c) => c.toUpperCase())
+    .replace(/\badp\b/i, 'ADP');
+}
+
+/**
+ * Uniform step header for every HR-facing card comment (see docs/VOICE_GUIDE.md):
+ *   ▶ STEP X of 10 — SHORT STATE NAME
+ *   ──────────────────────────────
+ */
+function stepHeader(step, stateName) {
+  return `▶ STEP ${step} of 10 — ${stateName}\n──────────────────────────────\n`;
+}
+
+module.exports = { sleep, retry, RateLimiter, startProgress, apiBodySnippet, friendlyFieldName, stepHeader };

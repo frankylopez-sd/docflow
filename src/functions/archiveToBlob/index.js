@@ -6,6 +6,7 @@ const adobe = require('../../lib/adobe');
 const blob = require('../../lib/blob');
 const monday = require('../../lib/monday');
 const { findItemByAgreementId } = require('../uploadToSharePoint');
+const { stepHeader, friendlyFieldName } = require('../../lib/util');
 
 /**
  * archiveToBlob: Queue-triggered function that archives signed PDF
@@ -54,6 +55,19 @@ async function processArchive(context, queueItem) {
       context.res = { status: 200, body: { itemId, status: 'already complete (idempotent replay)' } };
       return;
     }
+
+    // Concurrency claim: two executions racing in the same second both pass
+    // the comment check above (neither comment exists yet). Atomic
+    // create-if-not-exists blob is the tie-breaker — exactly one run wins.
+    const claimKey = `locks/agreement-${agreementId}.lock`;
+    const claimed = await blob.claimOnce('pdf-archive', claimKey).catch(() => true);
+    if (!claimed) {
+      logger.event('archiveToBlob-claim-lost', { itemId, agreementId });
+      context.res = { status: 200, body: { itemId, status: 'another run already claimed this agreement' } };
+      return;
+    }
+    // On any failure below, release the claim so the queue retry can run.
+    context._archiveClaim = { container: 'pdf-archive', key: claimKey };
 
     // Additional guard: check if status is ALREADY done/complete before re-running
     const currentStatus = await monday.readRow(boardId, itemId).then(r =>
@@ -139,19 +153,23 @@ async function processArchive(context, queueItem) {
       const readiness = await monday.adpReadiness(boardId, itemId);
       adpLine = readiness.complete
         ? `\n\n✅ ADP handoff: all ${readiness.total} required fields are filled — ready for user creation.`
-        : `\n\n✋ ADP handoff: ${readiness.filled}/${readiness.total} required fields filled. Missing: ${readiness.missing.join(', ')}.`;
+        : `\n\n✋ ADP handoff: ${readiness.filled}/${readiness.total} required fields filled. Missing: ${readiness.missing.map(friendlyFieldName).join(', ')}.`;
     } catch (err) {
       logger.warn('archiveToBlob-adp-readiness-failed', { itemId, error: err.message });
     }
 
     await monday.logAction(itemId,
-      `✅ Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}`,
+      stepHeader(9, '✅ SIGNED & FILED')
+      + `WHAT HAPPENED: Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}\n\n`
+      + `NEXT: nothing — automatic. The manual next-steps checklist posts here next.`,
       `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
     ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
     // Post manual-steps checklist on Done status
     await monday.logAction(itemId,
-      `📋 NEXT STEPS (manual):\n`
+      stepHeader(10, '🎉 DONE')
+      + `WHAT HAPPENED: the automated flow is finished — everything from here is a person's move.\n\n`
+      + `📋 NEXT STEPS (manual):\n`
       + `    1. Background check — order from vendor (Checkr/Sterling)\n`
       + `    2. ADP profile — create user account in ADP\n`
       + `    3. IT provisioning — email credentials, create Slack account, set up device\n`
@@ -185,7 +203,9 @@ async function processArchive(context, queueItem) {
           });
           if (result.sent) {
             await monday.logAction(itemId,
-              `🎉 Confirmation sent to ${to} with their signed copy attached.`
+              stepHeader(9, '🎉 CONFIRMATION SENT')
+              + `WHAT HAPPENED: Confirmation sent to ${to} with their signed copy attached.\n\n`
+              + `NEXT: nothing — automatic. The candidate now has their own copy for their records.`
             ).catch(() => {});
           }
         }
@@ -203,6 +223,11 @@ async function processArchive(context, queueItem) {
 
   } catch (error) {
     logger.error('archiveToBlob-error', { error: error.message, itemId });
+
+    // Give the claim back so the automatic retry isn't locked out.
+    if (context._archiveClaim) {
+      await blob.releaseClaim(context._archiveClaim.container, context._archiveClaim.key).catch(() => {});
+    }
 
     // Update Monday: status → "Archive Error" (only when we know which item)
     if (itemId) {

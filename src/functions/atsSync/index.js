@@ -4,6 +4,7 @@ const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
 const { WebhookError, validateSignature } = require('../../lib/webhookErrors');
+const { stepHeader } = require('../../lib/util');
 
 /**
  * atsSync: when a candidate on an ATS board (RPH-ATS / Clerk-ATS) is set to
@@ -99,10 +100,16 @@ async function handleAtsSync(req) {
     if (!atsEmail || !existing) exact = exact || m;                            // can't tell — reuse, but warn
   }
   if (sameName.length > 0 && !exact) {
-    namesakeWarning = `⚠️ Heads up — another hire on this board is also named "${candidateName}", but with a different email address. This is a separate new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\nNEXT: confirm you're working on the right card before going further. Both cards will look identical in lists — tell them apart by Personal Email.`;
+    namesakeWarning = stepHeader(1, '⚠️ NAMESAKE CHECK')
+      + `⚠️ Heads up — another hire on this board is also named "${candidateName}".\n\n`
+      + `WHY: the other card carries a different email address — this is a separate new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\n`
+      + `YOUR NEXT MOVE: confirm you're working on the right card before going further. Both cards will look identical in lists — tell them apart by Personal Email.`;
   } else if (exact && sameName.length > 1) {
     // Several cards carry this name — say which one we touched and why.
-    namesakeWarning = `⚠️ Heads up — ${sameName.length} cards on this board are named "${candidateName}". This ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\nNEXT: double-check you're on the right card before approving anything — in lists they look identical; Personal Email is what tells them apart.`;
+    namesakeWarning = stepHeader(1, '⚠️ NAMESAKE CHECK')
+      + `⚠️ Heads up — ${sameName.length} cards on this board are named "${candidateName}".\n\n`
+      + `WHY: this ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\n`
+      + `YOUR NEXT MOVE: double-check you're on the right card before approving anything — in lists they look identical; Personal Email is what tells them apart.`;
   }
 
   const roleColumns = {
@@ -149,9 +156,11 @@ async function handleAtsSync(req) {
 
   // Audit trail on both sides
   await monday.logAction(onboardingItemId,
-    `🧲 Imported from ${boardCfg.name}: ${candidateName} was marked "${ats.hiredLabel}". `
+    stepHeader(1, '🧲 IMPORTED')
+    + `WHAT HAPPENED: Imported from ${boardCfg.name}: ${candidateName} was marked "${ats.hiredLabel}". `
     + `Their ATS record is linked — names, email, phone and dates mirror in automatically. `
-    + `Role preset: ${boardCfg.jobTitle} (${boardCfg.payClass}).`,
+    + `Role preset: ${boardCfg.jobTitle} (${boardCfg.payClass}).\n\n`
+    + `NEXT: nothing — automatic. The welcome comment with the hire-field checklist posts here next.`,
     `ATS item ${atsItemId} (board ${atsBoardId}) linked via ${boardCfg.relationColumn}; job title + pay class preset from the source board.`
   ).catch((err) => logger.warn('atsSync-onboarding-log-failed', { onboardingItemId, error: err.message }));
 
@@ -162,7 +171,9 @@ async function handleAtsSync(req) {
   }
 
   await monday.logAction(atsItemId,
-    `🚀 Onboarding started for ${candidateName} — their Onboarding record was created and linked automatically. The welcome packet is being prepared there.`,
+    stepHeader(1, '🚀 ONBOARDING STARTED')
+    + `WHAT HAPPENED: Onboarding started for ${candidateName} — their Onboarding record was created and linked automatically.\n\n`
+    + `NEXT: nothing — automatic. The welcome packet is being prepared on their Onboarding card.`,
     `Onboarding item ${onboardingItemId} created/linked on board ${cfg.monday.onboardingBoardId} by atsSync.`
   ).catch((err) => logger.warn('atsSync-ats-log-failed', { atsItemId, error: err.message }));
 

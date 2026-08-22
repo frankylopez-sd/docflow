@@ -4,6 +4,7 @@ const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
 const { WebhookError, validateSignature } = require('../../lib/webhookErrors');
+const { stepHeader } = require('../../lib/util');
 
 /**
  * formSync: syncs a welcome-form submission onto the matching Onboarding
@@ -144,9 +145,10 @@ async function handleFormSync(req) {
   // Visible trail on the hire record (notifies subscribers)
   const notes = get(fc.notes);
   await monday.logAction(hireId,
-    `📥 Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
+    stepHeader(2, '📥 HIRE DETAILS')
+    + `WHAT HAPPENED: Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
     + (notes ? `\n\nCandidate notes: ${notes}` : '')
-    + `\n\nNEXT: fill the remaining ADP fields, then check ☑ Details Verified.`,
+    + `\n\nYOUR NEXT MOVE: fill the remaining ADP fields, then check ☑ Details Verified.`,
     `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to step ③.`
   ).catch((err) => logger.warn('formSync-update-post-failed', { hireId, error: err.message }));
 

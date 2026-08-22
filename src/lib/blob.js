@@ -130,6 +130,39 @@ async function uploadPDF(container, key, fileBuffer) {
   }
 }
 
+/**
+ * Atomically claim a one-shot lock: creates the blob only if it does not
+ * already exist (ifNoneMatch:'*'). Returns true when this caller won the
+ * claim, false when a concurrent/previous run already holds it. This is the
+ * only duplicate guard that works for two executions racing in the same
+ * second — comment-based dedupe can't see a comment that isn't posted yet.
+ */
+async function claimOnce(container, key) {
+  const client = _primary();
+  const containerClient = client.service.getContainerClient(container);
+  await containerClient.createIfNotExists();
+  const blockBlob = containerClient.getBlockBlobClient(key);
+  try {
+    const stamp = Buffer.from(new Date().toISOString());
+    await blockBlob.uploadData(stamp, { conditions: { ifNoneMatch: '*' } });
+    return true;
+  } catch (err) {
+    const code = String(err.code || err.message || '');
+    if (err.statusCode === 409 || err.statusCode === 412 || /BlobAlreadyExists|ConditionNotMet/i.test(code)) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/** Best-effort release of a claimOnce lock so a retry can run after a failure. */
+async function releaseClaim(container, key) {
+  try {
+    const client = _primary();
+    await client.service.getContainerClient(container).getBlockBlobClient(key).deleteIfExists();
+  } catch (_) { /* best effort */ }
+}
+
 /** Download a blob to a Buffer. Checks primary, then secondary. */
 async function downloadPDF(container, key) {
   const tryDownload = async (client) => {
@@ -196,6 +229,8 @@ function blobUrl(container, key) {
 
 module.exports = {
   uploadPDF,
+  claimOnce,
+  releaseClaim,
   downloadPDF,
   freshSasUrl,
   deletePDF,

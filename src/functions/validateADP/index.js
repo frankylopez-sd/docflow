@@ -4,6 +4,7 @@ const config = require('../../lib/config');
 const logger = require('../../lib/logger');
 const monday = require('../../lib/monday');
 const queue = require('../../lib/priorityQueueService');
+const { stepHeader, friendlyFieldName } = require('../../lib/util');
 
 /**
  * validateADP: Validates 25 required ADP/HR fields from Monday hire record.
@@ -67,12 +68,12 @@ module.exports = async function (context, req) {
 
     // Name the gaps on the card so nobody has to guess what "missing" means
     if (!isValid) {
-      const friendly = (f) => f.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^./, (c) => c.toUpperCase()).replace(/\badp\b/i, 'ADP');
       try {
         await monday.logAction(itemId,
-          `✋ ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
-          + missing.map((f) => `    ${friendly(f)}`).join('\n')
-          + `\n\nNEXT: fill ${missing.length === 1 ? 'it' : 'them'} in on this card and the validation will pass on the next check.`
+          stepHeader(2, '✋ HIRE DETAILS')
+          + `WHAT HAPPENED: the ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
+          + missing.map((f) => `    ${friendlyFieldName(f)}`).join('\n')
+          + `\n\nYOUR NEXT MOVE: fill ${missing.length === 1 ? 'it' : 'them'} in on this card and the validation will pass on the next check.`
         );
       } catch (_) { /* comment is best-effort — validation result stands */ }
     }
