@@ -29,6 +29,18 @@ jobs:
           package: deploy-stage
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
 
+      # The worker has repeatedly wedged into a permanent 503 after the zip
+      # swap (2026-08-21/22); a host restart clears it every time. Bounce the
+      # Functions host via Kudu using the publish-profile credentials.
+      - name: Restart Functions host
+        run: |
+          PROFILE='${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}'
+          USER=$(echo "$PROFILE" | grep -o 'userName="[^"]*"' | head -1 | cut -d'"' -f2)
+          PASS=$(echo "$PROFILE" | grep -o 'userPWD="[^"]*"' | head -1 | cut -d'"' -f2)
+          curl -s -u "$USER:$PASS" -X POST \
+            "https://doc-automation-func.scm.azurewebsites.net/api/functions/host/restart" \
+            -o /dev/null -w "host restart: %{http_code}\n"
+
       - name: Smoke test
         run: |
           echo "Waiting for app to warm..."
