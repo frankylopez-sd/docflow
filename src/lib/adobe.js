@@ -584,8 +584,34 @@ async function createSigningAgreement(opts) {
   };
 }
 
+/**
+ * Cancel an in-flight agreement (e.g. the offer lapsed past its expiration):
+ * PUT /agreements/{id}/state {state:'CANCELLED'}. Reversible on Adobe's side
+ * only by sending a fresh agreement — callers narrate before cancelling.
+ * @returns {Promise<boolean>} true when Adobe accepted the cancellation
+ */
+async function cancelAgreement(agreementId, note) {
+  if (!agreementId) throw new Error('cancelAgreement: agreementId is required');
+  const cfg = config.load();
+  await _limiter().acquire();
+  return retry(async () => {
+    const headers = await _signHeaders();
+    await axios.put(
+      `${cfg.adobe.signApiUrl}/api/rest/v6/agreements/${agreementId}/state`,
+      {
+        state: 'CANCELLED',
+        agreementCancellationInfo: { comment: note || 'Offer expired', notifyOthers: false },
+      },
+      { headers: { ...headers, 'Content-Type': 'application/json' }, timeout: 30000 }
+    );
+    logger.event('sign-agreement-cancelled', { agreementId });
+    return true;
+  }, { retries: 2, label: 'sign-cancel-agreement' });
+}
+
 module.exports = {
   getToken,
+  cancelAgreement,
   createPDF,
   extractMergeFields,
   uploadTransientDocument,

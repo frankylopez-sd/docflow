@@ -65,6 +65,10 @@ async function processSharePointUpload(msg) {
   // Leave docType unset here — step 2 fills it from the Monday row's template
   // column (falling back to 'Document') when the message doesn't carry one.
   let docType = msg.docType || null;
+  // Revision marker from archiveToBlob (rev >= 2 means a re-sign). Older
+  // queue messages don't carry it — fall back to no-rev, exactly as before.
+  const rev = Number(msg.rev) || 1;
+  const isResign = rev > 1;
 
   // Bail early if SharePoint is not enabled
   if (!cfg.sharepoint.enabled) {
@@ -110,7 +114,9 @@ async function processSharePointUpload(msg) {
     const stamp = `${pt('year')}-${pt('month')}-${pt('day')} ${pt('hour')}.${pt('minute')} ${pt('dayPeriod')}`;
     const docLabel = (docType && docType !== 'Document' ? docType : 'Signed Packet')
       .replace(/[\\/:*?"<>|#%]+/g, '-');
-    const fileName = `${docLabel} — ${stamp}.pdf`;
+    // Re-signs carry the same rev marker as the blob archive and Monday
+    // attachment, so the latest file is unambiguous at a glance.
+    const fileName = isResign ? `${docLabel} — rev ${rev} — ${stamp}.pdf` : `${docLabel} — ${stamp}.pdf`;
     const metadata = {
       fileName,
       employeeFolder,
@@ -146,6 +152,7 @@ async function processSharePointUpload(msg) {
         await monday.logAction(itemId,
           stepHeader(9, 'Filed to SharePoint')
           + `Filed. The signed packet is copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}\n\n`
+          + (isResign ? `This is the latest revision — rev ${rev} replaces the earlier SharePoint copy as the one that counts. The earlier file stays where it was filed.\n\n` : '')
           + `Next → nothing; this was the last filing step for the signed packet.`
         );
       } catch (_) { /* comment is best-effort */ }

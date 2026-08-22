@@ -116,6 +116,9 @@ function load(options = {}) {
         offerExpires: env.MONDAY_COL_OFFER_EXPIRES || 'date_mm6f6rma',
         // Offer lifecycle column (HR review gate) and its label vocabulary
         offerStatus: env.MONDAY_COL_OFFER_STATUS || 'color_mm63ewwy',
+        // Reminder opt-out checkbox: checked -> the nudge sweep never emails
+        // or comments about this hire (lapse narration still posts).
+        noReminders: env.MONDAY_COL_NO_REMINDERS || 'boolean_mm6fwt1b',
       },
       // Offer Letter Status vocabulary (ordered ①→⑥; one-word verbs:
       // imperative = a person acts, -ing = automation in progress)

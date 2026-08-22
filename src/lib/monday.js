@@ -239,6 +239,51 @@ async function hasUpdateContaining(itemId, needle) {
   return updates.some((u) => u && typeof u.text_body === 'string' && u.text_body.includes(needle));
 }
 
+/**
+ * Count the updates on an item containing the given text. Additive sibling of
+ * hasUpdateContaining — used by revision-aware filing (a second signed packet
+ * counts the earlier 'archived (agreement ' comments to derive its rev number).
+ */
+async function countUpdatesContaining(itemId, needle) {
+  const query = `
+    query ($itemId: [ID!]) {
+      items (ids: $itemId) { updates (limit: 50) { text_body } }
+    }`;
+  const data = await _gql(query, { itemId: [String(itemId)] }, 'monday-count-updates-containing');
+  const updates = (data.items && data.items[0] && data.items[0].updates) || [];
+  return updates.filter((u) => u && typeof u.text_body === 'string' && u.text_body.includes(needle)).length;
+}
+
+/**
+ * Read an item's updates with timestamps — the nudge sweep measures staleness
+ * from marker comments ("went out", "I built the packet"), not guesses.
+ * @returns {Promise<Array<{text:string, createdAt:number|null}>>} newest-capable list
+ */
+async function listUpdates(itemId, limit = 50) {
+  const query = `
+    query ($itemId: [ID!]) {
+      items (ids: $itemId) { updates (limit: ${parseInt(limit, 10) || 50}) { text_body created_at } }
+    }`;
+  const data = await _gql(query, { itemId: [String(itemId)] }, 'monday-list-updates');
+  const updates = (data.items && data.items[0] && data.items[0].updates) || [];
+  return updates.map((u) => ({
+    text: (u && typeof u.text_body === 'string') ? u.text_body : '',
+    createdAt: u && u.created_at ? Date.parse(u.created_at) : null,
+  }));
+}
+
+/**
+ * created_at (epoch ms) of the NEWEST update containing the needle, or null.
+ */
+async function findUpdateTime(itemId, needle) {
+  const updates = await listUpdates(itemId);
+  let best = null;
+  for (const u of updates) {
+    if (u.text.includes(needle) && u.createdAt && (!best || u.createdAt > best)) best = u.createdAt;
+  }
+  return best;
+}
+
 /** Current time in Pacific local time (the team's clock). */
 function ptTimestamp() {
   const formatted = new Intl.DateTimeFormat('en-US', {
@@ -761,6 +806,9 @@ module.exports = {
   logAction,
   hasUpdates,
   hasUpdateContaining,
+  listUpdates,
+  findUpdateTime,
+  countUpdatesContaining,
   getEmailTemplate,
   getPacketFiles,
   updateItemColumns,

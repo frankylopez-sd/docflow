@@ -69,6 +69,15 @@ async function processArchive(context, queueItem) {
     // On any failure below, release the claim so the queue retry can run.
     context._archiveClaim = { container: 'pdf-archive', key: claimKey };
 
+    // Revision awareness: a revised offer means a SECOND agreement for the
+    // same hire. Count the earlier agreement-specific completion comments
+    // (this agreement's own was ruled out by the dedupe above) — any hit
+    // means this signing is rev N+1 and every artifact says so.
+    const priorSigned = await monday.countUpdatesContaining(itemId, 'archived (agreement ').catch(() => 0);
+    const rev = priorSigned + 1;
+    const isResign = rev > 1;
+    const revSuffix = isResign ? ` - rev ${rev}` : '';
+
     // Additional guard: check if status is ALREADY done/complete before re-running
     const currentStatus = await monday.readRow(boardId, itemId).then(r =>
       r.columns[cfg.monday.columns.status] || r.byTitle['Onboarding Status']
@@ -101,7 +110,9 @@ async function processArchive(context, queueItem) {
       ? `${nameParts[nameParts.length - 1]}-${nameParts.slice(0, -1).join('-')}`
       : nameParts[0];
     const dateStamp = new Date().toISOString().slice(0, 10);
-    const archiveFileName = `new-hires/${folder}/signed-offer-${dateStamp}-${itemId}.pdf`;
+    // Never overwrite the earlier packet: re-signs get -rev2/-rev3 appended
+    // before .pdf so both files live side by side and the latest is unambiguous.
+    const archiveFileName = `new-hires/${folder}/signed-offer-${dateStamp}-${itemId}${isResign ? `-rev${rev}` : ''}.pdf`;
     const upload = await blob.uploadPDF('pdf-archive', archiveFileName, signedPdfBuffer);
     const archiveUrl = upload.url;
 
@@ -116,7 +127,7 @@ async function processArchive(context, queueItem) {
     // is the copy HR can actually open and preview from the card.
     await monday.attachFile(
       itemId, cfg.monday.columns.signedFile, signedPdfBuffer,
-      `Signed Packet - ${String(employeeName || 'hire').replace(/-/g, ' ')}.pdf`
+      `Signed Packet - ${String(employeeName || 'hire').replace(/-/g, ' ')}${revSuffix}.pdf`
     );
 
     // Signing closes ITS gate only — the card advances by which candidate
@@ -141,6 +152,7 @@ async function processArchive(context, queueItem) {
         if (context.bindings) {
           context.bindings.sharepointQueue = JSON.stringify({
             agreementId, itemId: String(itemId), boardId: String(boardId), employeeName,
+            rev, // 1 on a first signing; 2+ marks a re-sign so the SharePoint copy carries the same rev
           });
         }
         logger.event('archiveToBlob-sharepoint-queued', { itemId, agreementId });
@@ -205,7 +217,9 @@ async function processArchive(context, queueItem) {
     // the manual checklist, and the confirmation-email outcome — together.
     await monday.logAction(itemId,
       stepHeader(9, 'Signed & filed')
-      + `Signed and filed. I've attached the packet to this card, archived (agreement ${agreementId}), and opened the background check.${adpLine}\n\n`
+      + `Signed and filed. I've attached the packet to this card, archived (agreement ${agreementId}), and opened the background check.`
+      + (isResign ? `\n\nThis replaces the earlier signed packet — rev ${rev} is the one that counts (agreement ${agreementId}). The earlier file stays where it was filed; nothing is renamed or removed.` : '')
+      + `${adpLine}\n\n`
       + `THE THREE GATES:\n${gateBoard}\n\n`
       + `${confirmationLine}\n\n`
       + `NEXT STEPS (manual):\n`

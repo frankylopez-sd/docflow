@@ -168,6 +168,66 @@ describe('Azure Function entrypoints', () => {
     });
     const archiveKey = [...storageMock.__store.keys()].find((k) => k.includes('|pdf-archive|'));
     expect(archiveKey).toBeDefined();
+    // First signing: no rev marker anywhere
+    expect(archiveKey).not.toMatch(/-rev\d/);
+    const comment = backend.updates.filter((u) => u.itemId === '555').map((u) => u.body).join('\n');
+    expect(comment).not.toContain('rev 2');
+  });
+
+  test('re-sign (second agreement) files everything as rev 2', async () => {
+    process.env.SHAREPOINT_ENABLED = 'true';
+    config.reset();
+    try {
+      await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+      await sendForSign(makeContext(), { boardId: '111', itemId: '555' });
+      // An earlier agreement already signed & filed on this card
+      backend.updates.push({ itemId: '555', body: 'Signed and filed. I\'ve attached the packet to this card, archived (agreement AGR-OLD), and opened the background check.' });
+      const attachSpy = jest.spyOn(monday, 'attachFile');
+
+      const ctx = makeContext();
+      await archiveToBlob(ctx, { agreementId: 'AGR-42' });
+
+      // Blob key carries -rev2 before .pdf — the earlier file is untouched
+      const archiveKey = [...storageMock.__store.keys()].find((k) => k.includes('|pdf-archive|') && k.includes('signed-offer'));
+      expect(archiveKey).toMatch(/-rev2\.pdf$/);
+
+      // Monday attachment carries the rev marker
+      expect(attachSpy.mock.calls.map((c) => c[3])).toContain('Signed Packet - Jane Doe - rev 2.pdf');
+
+      // Completion comment says plainly which packet counts (needle intact)
+      const bodies = backend.updates.filter((u) => u.itemId === '555').map((u) => u.body);
+      const completion = bodies.find((b) => b.includes('archived (agreement AGR-42'));
+      expect(completion).toBeDefined();
+      expect(completion).toContain('This replaces the earlier signed packet — rev 2 is the one that counts (agreement AGR-42)');
+
+      // SharePoint queue payload carries rev through
+      const spMsg = JSON.parse(ctx.bindings.sharepointQueue);
+      expect(spMsg).toMatchObject({ agreementId: 'AGR-42', itemId: '555', rev: 2 });
+      attachSpy.mockRestore();
+    } finally {
+      delete process.env.SHAREPOINT_ENABLED;
+      config.reset();
+    }
+  });
+
+  test('first sign queues SharePoint with rev 1 and no rev marker in names', async () => {
+    process.env.SHAREPOINT_ENABLED = 'true';
+    config.reset();
+    try {
+      await generatePDF.processGenerate(makeContext(), { boardId: '111', itemId: '555' });
+      await sendForSign(makeContext(), { boardId: '111', itemId: '555' });
+      const attachSpy = jest.spyOn(monday, 'attachFile');
+      const ctx = makeContext();
+      await archiveToBlob(ctx, { agreementId: 'AGR-42' });
+      const names = attachSpy.mock.calls.map((c) => c[3]);
+      expect(names).toContain('Signed Packet - Jane Doe.pdf');
+      expect(names.join('|')).not.toContain('rev');
+      expect(JSON.parse(ctx.bindings.sharepointQueue).rev).toBe(1);
+      attachSpy.mockRestore();
+    } finally {
+      delete process.env.SHAREPOINT_ENABLED;
+      config.reset();
+    }
   });
 
   test('cleanup entry runs with a past-due timer', async () => {

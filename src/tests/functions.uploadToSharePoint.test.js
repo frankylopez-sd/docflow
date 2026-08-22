@@ -138,6 +138,42 @@ describe('uploadToSharePoint', () => {
       );
     });
 
+    test('re-sign message (rev 2) adds the rev marker to the file name and comment', async () => {
+      const msg = {
+        agreementId: 'agreement-uuid',
+        itemId: 'item-123',
+        employeeName: 'John Doe',
+        docType: 'Document', // generic docType -> 'Signed Packet' label
+        rev: 2,
+      };
+
+      await processSharePointUpload(msg);
+
+      expect(sharepoint.uploadPDF).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        expect.objectContaining({
+          fileName: expect.stringMatching(/^Signed Packet — rev 2 — .+\.pdf$/),
+        }),
+        { retries: 2 }
+      );
+      expect(monday.logAction).toHaveBeenCalledWith(
+        'item-123',
+        expect.stringContaining('This is the latest revision — rev 2 replaces the earlier SharePoint copy')
+      );
+    });
+
+    test('first sign (rev absent or 1) keeps the plain file name — no rev marker', async () => {
+      for (const msg of [
+        { agreementId: 'agreement-uuid', itemId: 'item-123', employeeName: 'John Doe', rev: 1 },
+        { agreementId: 'agreement-uuid', itemId: 'item-123', employeeName: 'John Doe' }, // legacy payload
+      ]) {
+        sharepoint.uploadPDF.mockClear();
+        await processSharePointUpload(msg);
+        const metadata = sharepoint.uploadPDF.mock.calls[0][1];
+        expect(metadata.fileName).not.toContain('rev');
+      }
+    });
+
     test('returns skipped if SharePoint disabled', async () => {
       config.load.mockReturnValueOnce({
         sharepoint: { enabled: false },
