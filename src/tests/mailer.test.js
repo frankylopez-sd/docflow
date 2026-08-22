@@ -49,9 +49,21 @@ describe('renderHtml branding', () => {
   test('wraps the text in the MedWatchers shell and linkifies URLs', () => {
     const html = mailer.renderHtml('Hi Rita,\nSign here: https://sign.example/x?y=1');
     expect(html).toContain('MedWatchers');
-    expect(html).toContain('#0b7a6b'); // brand teal
+    expect(html).toContain('#0066ff'); // brand blue (medwatchers.com --primary500)
+    expect(html).toContain('Medwatchers_Logo_Primary'); // site logo in header
     expect(html).toContain('<a href="https://sign.example/x?y=1"');
     expect(html).toContain('Hi Rita,<br>');
+  });
+
+  test('a standalone-URL line becomes a brand-colored button', () => {
+    const html = mailer.wrapBrandedHtml({
+      bodyText: 'Sign your packet:\n\nhttps://sign.example/agreement/abc\n\nThanks!',
+      preheader: 'Welcome aboard',
+    });
+    expect(html).toContain('href="https://sign.example/agreement/abc"');
+    expect(html).toContain(`bgcolor="${mailer.BRAND.primary}"`); // bulletproof button
+    expect(html).toContain('Welcome aboard'); // preheader present
+    expect(html).toContain('MedwatchersHR@medwatchers.com'); // footer contact
   });
 
   test('escapes HTML in the team-edited text (no injection into the shell)', () => {

@@ -79,7 +79,8 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
 
     const pkg = backend.updates.find((u) => u.body.includes(`Preview only — I haven't sent anything`));
     expect(pkg).toBeDefined();
-    expect(pkg.body).toContain(ESIGN_URL);
+    expect(pkg.body).toContain(ESIGN_URL); // draft shows the RAW link — HR reads the real destination
+    expect(pkg.body).not.toContain('/api/trackClick');
     expect(pkg.body).toContain('Fill out your info form');
     expect(graphSendCalls()).toHaveLength(0);
   });
@@ -93,7 +94,11 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     expect(sends).toHaveLength(1);
     const [, payload] = sends[0];
     expect(payload.message.toRecipients[0].emailAddress.address).toBe('jane@medwatchers.com');
-    expect(payload.message.body.content).toContain(ESIGN_URL);
+    // The SENT copy carries the signed tracking redirect, not the raw link
+    expect(payload.message.body.content).toContain('/api/trackClick');
+    expect(payload.message.body.content).toContain(
+      Buffer.from(ESIGN_URL, 'utf8').toString('base64url'));
+    expect(payload.message.body.content).not.toContain(ESIGN_URL);
 
     const pkg = backend.updates.find((u) => u.body.includes('went out verbatim'));
     expect(pkg.body).toContain('went to jane@medwatchers.com');

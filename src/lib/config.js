@@ -303,6 +303,13 @@ function load(options = {}) {
       enabled: env.SHAREPOINT_ENABLED === 'true' || env.SHAREPOINT_ENABLED === '1',
     },
 
+    // Candidate link-click tracking: emailed links route through the signed
+    // /api/trackClick redirect so the card shows the first click per link.
+    tracking: {
+      secret: env.DOCFLOW_TRACK_SECRET || env.MONDAY_SIGNING_SECRET || null,
+      baseUrl: env.DOCFLOW_PUBLIC_BASE_URL || 'https://doc-automation-func.azurewebsites.net',
+    },
+
     retryBaseMs: _int(env.DOCFLOW_RETRY_BASE_MS, 500),
     tempMaxAgeHours: _int(env.DOCFLOW_TEMP_MAX_AGE_HOURS, 168),
     webhookRateLimitThreshold: _int(env.DOCFLOW_QUEUE_RATE_LIMIT_THRESHOLD, 1000),

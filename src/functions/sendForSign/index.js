@@ -325,11 +325,18 @@ async function deliverPackage(cfg, opts) {
 
   let sentTo = null;
   if (!draftOnly && mailer.isConfigured()) {
+    // Click tracking: ONLY the emailed copy gets the signed /api/trackClick
+    // redirects — the step-6 draft preview keeps the REAL links so HR can
+    // read exactly where the candidate lands.
+    const { trackedLink } = require('../../lib/util');
+    let emailBody = body;
+    if (signLink) emailBody = emailBody.split(signLink).join(trackedLink(itemId, 'sign', signLink));
+    emailBody = emailBody.split(formLink).join(trackedLink(itemId, 'form', formLink));
     const personal = await monday.getColumnValueJson(boardId, itemId, cfg.monday.formSync.targetColumns.personalEmail).catch(() => null);
     const to = (personal && (personal.email || personal.text)) || workEmail;
     if (to && /@/.test(String(to))) {
       try {
-        const result = await mailer.sendMail({ to, subject, body });
+        const result = await mailer.sendMail({ to, subject, body: emailBody });
         if (result.sent) sentTo = to;
       } catch (err) {
         logger.warn('sendForSign-package-email-failed', { itemId, error: err.message });

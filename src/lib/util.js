@@ -157,4 +157,29 @@ function stepHeader(step, stateName) {
   return `◆ DocFlow · ${step} of 10 — ${stateName}\n──────────────────────────────\n`;
 }
 
-module.exports = { sleep, retry, RateLimiter, startProgress, apiBodySnippet, friendlyFieldName, stepHeader };
+/**
+ * HMAC signature for a tracked-link redirect: hex SHA-256 over `${i}|${k}|${u}`
+ * where u is the base64url-encoded target URL. Shared by the link builder
+ * (below) and the trackClick verifier so they can never drift.
+ */
+function trackSignature(secret, itemId, kind, encodedUrl) {
+  return require('crypto').createHmac('sha256', String(secret))
+    .update(`${itemId}|${kind}|${encodedUrl}`).digest('hex');
+}
+
+/**
+ * Wrap a candidate-facing URL in the signed /api/trackClick redirect. First
+ * click posts a card comment, then 302s to the real destination. Returns the
+ * RAW url unchanged when no tracking secret is configured or the url is not
+ * an absolute http(s) link — sending always beats tracking.
+ */
+function trackedLink(itemId, kind, targetUrl) {
+  const cfg = require('./config').load();
+  const secret = cfg.tracking && cfg.tracking.secret;
+  if (!secret || !targetUrl || !/^https?:\/\//i.test(String(targetUrl))) return targetUrl;
+  const u = Buffer.from(String(targetUrl), 'utf8').toString('base64url');
+  const s = trackSignature(secret, itemId, kind, u);
+  return `${cfg.tracking.baseUrl}/api/trackClick?i=${encodeURIComponent(itemId)}&k=${encodeURIComponent(kind)}&u=${u}&s=${s}`;
+}
+
+module.exports = { sleep, retry, RateLimiter, startProgress, apiBodySnippet, friendlyFieldName, stepHeader, trackSignature, trackedLink };
