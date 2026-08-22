@@ -95,7 +95,7 @@ describe('candidate package — two gates: prep drafts, send delivers', () => {
     expect(payload.message.toRecipients[0].emailAddress.address).toBe('jane@medwatchers.com');
     expect(payload.message.body.content).toContain(ESIGN_URL);
 
-    const pkg = backend.updates.find((u) => u.body.includes('Sent!'));
+    const pkg = backend.updates.find((u) => u.body.includes('sent verbatim'));
     expect(pkg.body).toContain('went to jane@medwatchers.com');
   });
 

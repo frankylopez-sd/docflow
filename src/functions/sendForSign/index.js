@@ -90,10 +90,11 @@ module.exports = async function (context, queueItem) {
     if (existingAgreement && statusNow === cfg.monday.statusLabels.outForSignature) {
       logger.event('sendForSign-duplicate-skipped', { itemId, existingAgreement });
       await monday.logAction(itemId,
-        stepHeader(8, '📤 SIGNING')
+        stepHeader(8, 'Signing')
         + `ℹ️ Nothing to rebuild — approving again does nothing (that's on purpose).\n\n`
         + `WHY: status is "${cfg.monday.statusLabels.outForSignature}" and this packet was already built AND sent — agreement on file: ${existingAgreement}. Building again would put a SECOND signing packet in the candidate's inbox.\n\n`
-        + `YOUR NEXT MOVE: need to send a corrected packet? Select "${cfg.monday.offerLabels.moreInfo}" first, fix the fields (the letter rebuilds itself), then approve again.`
+        + `Your move\n`
+        + `    ✎ need a corrected packet → select "${cfg.monday.offerLabels.moreInfo}" first, fix the fields (the letter rebuilds itself), then approve again`
       ).catch(() => {});
       context.res = { status: 200, body: { itemId, skipped: true, reason: 'already out for signature', agreementId: existingAgreement } };
       return;
@@ -200,16 +201,12 @@ module.exports = async function (context, queueItem) {
       logger.warn('sendForSign-signers-update-failed', { itemId, error: err.message });
     });
 
+    // One event, one comment: the packet-built line rides at the top of the
+    // step-6 email preview (posted by deliverPackage) instead of its own post.
     const packetLine = packetDocs.length
-      ? `\n\nIn the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
+      ? `\nIn the packet (signed together, one session): 1. Offer Letter (custom for ${firstName})${packetDocs.map((d, i) => ` · ${i + 2}. ${d.name.replace(/\.pdf$/i, '')}`).join('')}.`
       : '';
-    await monday.logAction(itemId,
-      stepHeader(5, '📦 PACKET BUILT')
-      + `WHAT HAPPENED: The packet is built. Signing order: ${signers.map(s => s.name).join(' → ')}.${packetLine}\n\n`
-      + `YOUR NEXT MOVE: read the email below. Looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes to ${firstName}.\n`
-      + `Something off → "${cfg.monday.offerLabels.moreInfo}"; fix the field and the letter rebuilds itself.`,
-      `Adobe Sign agreement ${agreementId} created with ${signers.length} signer(s) and ${1 + packetDocs.length} document(s); no candidate email sent (awaiting the ⑤ Send Package gate).`
-    ).catch(err => logger.warn('sendForSign-notify-failed', { itemId, error: err.message }));
+    const builtLine = `The packet is built. Signing order: ${signers.map(s => s.name).join(' → ')}.${packetLine}`;
 
     // Post the REAL email (with the real signing link) as a draft only — the
     // Send Package gate is what actually delivers it.
@@ -217,6 +214,8 @@ module.exports = async function (context, queueItem) {
     try {
       await deliverPackage(cfg, {
         boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly: true,
+        builtLine,
+        insideNote: `Adobe Sign agreement ${agreementId} created with ${signers.length} signer(s) and ${1 + packetDocs.length} document(s); no candidate email sent (awaiting the ⑤ Send Package gate).`,
       });
     } finally {
       progress.stop();
@@ -260,7 +259,7 @@ module.exports = async function (context, queueItem) {
         ? `Generate the letter first: fill the hire fields → check ☑ Details Verified → review → then "${failCfg.monday.offerLabels.approved}".`
         : `Fix the cause below, then re-select "${failCfg.monday.offerLabels.approved}" to re-send.`;
       await monday.logAction(queueItem.itemId,
-        (queueItem?.mode === 'send' ? stepHeader(7, '❌ SEND FAILED') : stepHeader(5, '❌ PACKET FAILED'))
+        (queueItem?.mode === 'send' ? stepHeader(7, 'Send failed') : stepHeader(5, 'Packet failed'))
         + `❌ Sending for signature failed.\n\n`
         + `SYSTEM: ${system}\n`
         + `ERROR: ${error.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — API body: ${apiBody}` : ''}\n\n`
@@ -279,7 +278,7 @@ module.exports = async function (context, queueItem) {
  * @returns {Promise<{sentTo:string|null, signLink:string|null}>}
  */
 async function deliverPackage(cfg, opts) {
-  const { boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly } = opts;
+  const { boardId, itemId, firstName, lastName, workEmail, agreementId, draftOnly, builtLine, insideNote } = opts;
   const mailer = require('../../lib/mailer');
   const cardLink = `https://medwatchers.monday.com/boards/${boardId}/pulses/${itemId}`;
 
@@ -288,10 +287,12 @@ async function deliverPackage(cfg, opts) {
   const signLink = await adobe.getSigningUrl(agreementId, { attempts: 10, delayMs: 2000 }).catch(() => null);
   if (!signLink) {
     await monday.logAction(itemId,
-      stepHeader(5, '📦 PACKET BUILT')
+      stepHeader(5, 'Packet built')
       + `⚠️ Adobe hasn't issued the candidate's direct signing link yet.\n\n`
       + `WHY: Adobe's own emails are turned off — our link is the only door, so without it the candidate has NO way in.\n\n`
-      + `YOUR NEXT MOVE: wait a minute and re-select "${cfg.monday.offerLabels.approved}" to retry, or grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it by hand.`
+      + `Your move\n`
+      + `    → wait a minute and re-select "${cfg.monday.offerLabels.approved}" to retry\n`
+      + `    → or grab the signing URL from Adobe Sign (agreement ${agreementId}) and send it by hand`
     ).catch(() => {});
   }
 
@@ -331,20 +332,23 @@ async function deliverPackage(cfg, opts) {
   // preview below. The STEP 7 confirmation refers back to it instead of
   // repeating it (see docs/VOICE_GUIDE.md, "the email appears once").
   const comment = sentTo
-    ? stepHeader(7, '📤 SENT')
-      + `WHAT HAPPENED: Sent! ${firstName}'s welcome package went to ${sentTo} just now.\n\n`
-      + `The email you previewed at STEP 6 was sent verbatim.\nRecipient: ${sentTo}${reference}\n\n`
-      + `NEXT: nothing — automatic. ${firstName} signs from that email, and the machine posts here the moment the signed packet lands.`
+    ? stepHeader(7, 'Sent')
+      + `Sent. ${firstName}'s welcome package went to ${sentTo} just now.\n\n`
+      + `The email you previewed at step 6 was sent verbatim.\nRecipient: ${sentTo}${reference}\n\n`
+      + `Next → ${firstName} signs from that email; the moment the signed packet lands, it posts here.`
     : draftOnly
-      ? stepHeader(6, '📧 READY TO SEND')
-        + `WHAT HAPPENED: this is the exact email ${firstName} will receive the moment you select "${cfg.monday.offerLabels.sendPackage}". Preview only — not sent:\n\n`
+      ? stepHeader(6, 'Ready to send')
+        + `${builtLine ? `${builtLine}\n` : ''}Below is word-for-word what ${firstName} receives the moment you select "${cfg.monday.offerLabels.sendPackage}". Preview only — not sent.\n\n`
         + `${block}${reference}\n\n`
-        + `YOUR NEXT MOVE: looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes to ${firstName}. To change the wording, edit the "package" row on the Email Templates board.\n\n`
-        + `WHY THIS MATTERS: this is the last check before anything reaches the candidate — what you read here is word-for-word what goes out.`
-      : stepHeader(7, '📤 SEND BY HAND')
-        + `WHAT HAPPENED: the packet is ready for ${firstName}, but auto-send is off — nothing has gone out.\n\n`
-        + `YOUR NEXT MOVE: copy the exact email previewed at STEP 6 into Outlook and send it to ${firstName} (${workEmail}) yourself — the machine takes over once they sign.${reference}`;
-  await monday.logAction(itemId, comment)
+        + `Your move\n`
+        + `    ✓ looks right → select "${cfg.monday.offerLabels.sendPackage}" and it goes to ${firstName}\n`
+        + `    ✎ wording off → edit the "package" row on the Email Templates board\n\n`
+        + `This is the last check before anything reaches the candidate.`
+      : stepHeader(7, 'Send by hand')
+        + `The packet is ready for ${firstName}, but auto-send is off — nothing has gone out.\n\n`
+        + `Your move\n`
+        + `    → copy the exact email previewed at step 6 into Outlook and send it to ${firstName} (${workEmail}) — the machine takes over once they sign${reference}`;
+  await monday.logAction(itemId, comment, insideNote)
     .catch((err) => logger.warn('sendForSign-package-notify-failed', { itemId, error: err.message }));
 
   return { sentTo, signLink };

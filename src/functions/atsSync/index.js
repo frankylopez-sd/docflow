@@ -100,16 +100,18 @@ async function handleAtsSync(req) {
     if (!atsEmail || !existing) exact = exact || m;                            // can't tell — reuse, but warn
   }
   if (sameName.length > 0 && !exact) {
-    namesakeWarning = stepHeader(1, '⚠️ NAMESAKE CHECK')
+    namesakeWarning = stepHeader(1, 'Namesake check')
       + `⚠️ Heads up — another hire on this board is also named "${candidateName}".\n\n`
       + `WHY: the other card carries a different email address — this is a separate new card for the person whose email is ${atsEmail || '(none on the ATS record)'}.\n\n`
-      + `YOUR NEXT MOVE: confirm you're working on the right card before going further. Both cards will look identical in lists — tell them apart by Personal Email.`;
+      + `Your move\n`
+      + `    → confirm you're working on the right card before going further — both look identical in lists; tell them apart by Personal Email`;
   } else if (exact && sameName.length > 1) {
     // Several cards carry this name — say which one we touched and why.
-    namesakeWarning = stepHeader(1, '⚠️ NAMESAKE CHECK')
+    namesakeWarning = stepHeader(1, 'Namesake check')
       + `⚠️ Heads up — ${sameName.length} cards on this board are named "${candidateName}".\n\n`
       + `WHY: this ATS record was linked to the card whose Personal Email matches (${atsEmail || 'no email available, so the first match was used'}).\n\n`
-      + `YOUR NEXT MOVE: double-check you're on the right card before approving anything — in lists they look identical; Personal Email is what tells them apart.`;
+      + `Your move\n`
+      + `    → double-check you're on the right card before approving anything — in lists they look identical; Personal Email tells them apart`;
   }
 
   const roleColumns = {
@@ -154,15 +156,17 @@ async function handleAtsSync(req) {
     logger.event('atsSync-created-hire', { atsItemId, onboardingItemId });
   }
 
-  // Audit trail on both sides
-  await monday.logAction(onboardingItemId,
-    stepHeader(1, '🧲 IMPORTED')
-    + `WHAT HAPPENED: Imported from ${boardCfg.name}: ${candidateName} was marked "${ats.hiredLabel}". `
-    + `Their ATS record is linked — names, email, phone and dates mirror in automatically. `
-    + `Role preset: ${boardCfg.jobTitle} (${boardCfg.payClass}).\n\n`
-    + `NEXT: nothing — automatic. The welcome comment with the hire-field checklist posts here next.`,
-    `ATS item ${atsItemId} (board ${atsBoardId}) linked via ${boardCfg.relationColumn}; job title + pay class preset from the source board.`
-  ).catch((err) => logger.warn('atsSync-onboarding-log-failed', { onboardingItemId, error: err.message }));
+  // Audit trail on both sides. Dedupe: Monday redelivers on timeout and the
+  // "Imported from" comment posted 3× in a live run — post it exactly once.
+  const alreadyNoted = await monday.hasUpdateContaining(onboardingItemId, 'Imported from').catch(() => false);
+  if (!alreadyNoted) {
+    await monday.logAction(onboardingItemId,
+      stepHeader(1, 'Imported')
+      + `Imported from ${boardCfg.name} — marked "${ats.hiredLabel}" · role preset ${boardCfg.jobTitle} (${boardCfg.payClass}). The ATS record is linked; names, email, phone and dates mirror in automatically.\n\n`
+      + `Next → the welcome comment with the hire-field checklist posts here.`,
+      `ATS item ${atsItemId} (board ${atsBoardId}) linked via ${boardCfg.relationColumn}; job title + pay class preset from the source board.`
+    ).catch((err) => logger.warn('atsSync-onboarding-log-failed', { onboardingItemId, error: err.message }));
+  }
 
   if (namesakeWarning) {
     logger.event('atsSync-namesake-warning', { onboardingItemId, candidateName, atsEmail });
@@ -171,9 +175,9 @@ async function handleAtsSync(req) {
   }
 
   await monday.logAction(atsItemId,
-    stepHeader(1, '🚀 ONBOARDING STARTED')
-    + `WHAT HAPPENED: Onboarding started for ${candidateName} — their Onboarding record was created and linked automatically.\n\n`
-    + `NEXT: nothing — automatic. The welcome packet is being prepared on their Onboarding card.`,
+    stepHeader(1, 'Onboarding started')
+    + `Onboarding started for ${candidateName} — their Onboarding record was created and linked automatically.\n\n`
+    + `Next → the welcome packet is prepared on their Onboarding card.`,
     `Onboarding item ${onboardingItemId} created/linked on board ${cfg.monday.onboardingBoardId} by atsSync.`
   ).catch((err) => logger.warn('atsSync-ats-log-failed', { atsItemId, error: err.message }));
 

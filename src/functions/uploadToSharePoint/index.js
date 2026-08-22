@@ -144,9 +144,9 @@ async function processSharePointUpload(msg) {
       }
       try {
         await monday.logAction(itemId,
-          stepHeader(9, '🗂️ FILED TO SHAREPOINT')
-          + `WHAT HAPPENED: the signed packet was copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}\n\n`
-          + `NEXT: nothing — automatic. This was the last filing step for the signed packet.`
+          stepHeader(9, 'Filed to SharePoint')
+          + `The signed packet was copied to SharePoint (MedWatchers HR site) — HR's locked-down archive copy: ${spUpload.webUrl}\n\n`
+          + `Next → nothing; this was the last filing step for the signed packet.`
         );
       } catch (_) { /* comment is best-effort */ }
     } catch (mondayErr) {
@@ -187,7 +187,7 @@ async function processSharePointUpload(msg) {
       const apiBody = require('../../lib/util').apiBodySnippet(err);
       try {
         await monday.logAction(itemId,
-          stepHeader(9, '❌ SHAREPOINT COPY FAILED')
+          stepHeader(9, 'SharePoint copy failed')
           + `❌ SharePoint copy failed. The signed offer is still safe — see the Signed PDF link on this card.\n\n`
           + `SYSTEM: SharePoint (Graph upload)\nERROR: ${err.message}${httpCode ? ` (HTTP ${httpCode})` : ''}${apiBody ? ` — ${apiBody}` : ''}\n\n`
           + `FIX: nothing to do right now — the system retries automatically. If this message repeats, escalate to IT with this card link.`

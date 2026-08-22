@@ -70,10 +70,11 @@ module.exports = async function (context, req) {
     if (!isValid) {
       try {
         await monday.logAction(itemId,
-          stepHeader(2, '✋ HIRE DETAILS')
-          + `WHAT HAPPENED: the ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
+          stepHeader(2, 'Hire details')
+          + `✋ The ADP user can't be created yet — ${missing.length === 1 ? 'one field is' : missing.length + ' fields are'} still empty:\n`
           + missing.map((f) => `    ${friendlyFieldName(f)}`).join('\n')
-          + `\n\nYOUR NEXT MOVE: fill ${missing.length === 1 ? 'it' : 'them'} in on this card and the validation will pass on the next check.`
+          + `\n\nYour move\n`
+          + `    ✎ fill ${missing.length === 1 ? 'it' : 'them'} in on this card — the validation passes on the next check`
         );
       } catch (_) { /* comment is best-effort — validation result stands */ }
     }

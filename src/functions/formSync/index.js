@@ -79,14 +79,14 @@ async function handleFormSync(req) {
   if (matches.length === 0) {
     logger.warn('formSync-no-hire-match', { candidateName, formItemId: itemId });
     await monday.postUpdate(itemId,
-      `⚠️ Form sync: no matching hire named "${candidateName}" found on the Onboarding board — nothing was synced.\n\nNEXT: link this submission to the right hire manually.`
+      `⚠️ Form sync: no matching hire named "${candidateName}" found on the Onboarding board — nothing was synced.\n\nYour move\n    → link this submission to the right hire manually`
     ).catch(() => {});
     return { status: 200, body: { synced: false, reason: 'no matching hire', candidateName } };
   }
   if (matches.length > 1) {
     logger.warn('formSync-ambiguous-hire-match', { candidateName, count: matches.length });
     await monday.postUpdate(itemId,
-      `⚠️ Form sync: ${matches.length} hires match "${candidateName}" on the Onboarding board — not syncing automatically.\n\nNEXT: pick the correct hire card and copy the form details over manually.`
+      `⚠️ Form sync: ${matches.length} hires match "${candidateName}" on the Onboarding board — not syncing automatically.\n\nYour move\n    → pick the correct hire card and copy the form details over manually`
     ).catch(() => {});
     return { status: 200, body: { synced: false, reason: 'ambiguous match', candidateName } };
   }
@@ -156,15 +156,16 @@ async function handleFormSync(req) {
   const notes = get(fc.notes);
   await monday.logAction(hireId,
     (postSign
-      ? stepHeader(9, '📥 FORM RECEIVED')
-      + `WHAT HAPPENED: Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
+      ? stepHeader(9, 'Form received')
+      + `Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
       + (notes ? `\n\nCandidate notes: ${notes}` : '')
       + `\n\nTHE THREE GATES:\n    ✍️ Offer packet — SIGNED ✓\n    📥 New Hire form — RECEIVED ✓\n    🔎 Background check — pending (tracked on the Background Checks board)\n\n`
-      + `NEXT: status moves to "${nextStatus}". Flip to "${cfg.monday.statusLabels.complete}" when the background check clears.`
-      : stepHeader(2, '📥 HIRE DETAILS')
-      + `WHAT HAPPENED: Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
+      + `Next → status moves to "${nextStatus}". Flip to "${cfg.monday.statusLabels.complete}" when the background check clears.`
+      : stepHeader(2, 'Hire details')
+      + `Welcome form received from ${candidateName} — contact info, address, emergency contact and availability synced onto this record.`
       + (notes ? `\n\nCandidate notes: ${notes}` : '')
-      + `\n\nYOUR NEXT MOVE: fill the remaining ADP fields, then check ☑ Details Verified.`),
+      + `\n\nYour move\n`
+      + `    ✎ fill the remaining ADP fields, then check ☑ Details Verified`),
     `formSync matched form submission ${itemId} to this hire by name and wrote ${Object.keys(values).length} columns; status advanced to "${nextStatus}".`
   ).catch((err) => logger.warn('formSync-update-post-failed', { hireId, error: err.message }));
 

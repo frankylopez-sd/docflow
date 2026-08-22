@@ -170,32 +170,11 @@ async function processArchive(context, queueItem) {
       + `    📥 New Hire form — ${formReceived ? 'RECEIVED ✓' : 'pending (candidate has the link)'}\n`
       + `    🔎 Background check — pending (tracked on the Background Checks board)`;
 
-    await monday.logAction(itemId,
-      stepHeader(9, '✅ SIGNED & FILED')
-      + `WHAT HAPPENED: Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}\n\n`
-      + `THE THREE GATES:\n${gateBoard}\n\n`
-      + (formReceived
-        ? `NEXT: nothing — automatic. Status moves to "${postSignStatus}". A person flips to "${cfg.monday.statusLabels.complete}" when the background check clears.`
-        : `NEXT: nothing — automatic. Status moves to "${postSignStatus}". When the candidate's form arrives it syncs itself and the card advances to "${cfg.monday.statusLabels.waitingBackground}".`),
-      `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
-    ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
-
-    // Manual-steps checklist — what remains for a person after signing
-    await monday.logAction(itemId,
-      stepHeader(10, '📋 WHAT REMAINS')
-      + `WHAT HAPPENED: the signing flow is finished — these are the remaining moves.\n\n`
-      + `📋 NEXT STEPS (manual):\n`
-      + `    1. Background check — order from vendor; result lands on the Background Checks board\n`
-      + `    2. ADP profile — create user account in ADP\n`
-      + `    3. IT provisioning — email credentials, create Slack account, set up device\n`
-      + `    4. TalentLMS enrollment — add to training courses\n`
-      + `    5. Active Employees — add hire to the roster\n\n`
-      + `Flip this card to "${cfg.monday.statusLabels.complete}" when the background check clears.`
-    ).catch(err => logger.warn('archiveToBlob-next-steps-failed', { itemId, error: err.message }));
-
-    // Congrats email: the candidate's own copy of the fully-signed letter,
-    // attached — their whole record in one place. Only fires when Graph mail
-    // is armed; an attachment here is safe (executed copy, nothing revocable).
+    // Congrats email FIRST (Email 2 of 2): the candidate's own copy of the
+    // fully-signed letter, attached. Only fires when Graph mail is armed; an
+    // attachment here is safe (executed copy, nothing revocable). The single
+    // completion comment below then reports the outcome in one line.
+    let confirmationLine = 'Confirmation email: not sent (mail disarmed).';
     try {
       const mailer = require('../../lib/mailer');
       if (mailer.isConfigured()) {
@@ -208,7 +187,6 @@ async function processArchive(context, queueItem) {
           const first = cleanName.split(/\s+/)[0] || 'there';
           const tpl = await monday.getEmailTemplate('congrats').catch(() => null);
           const fill = { firstName: first, fullName: cleanName };
-          // EMAIL 2 of 2: thank-you / received confirmation + the signed copy.
           const subject = mailer.renderTemplate((tpl && tpl.subject) || `✅ Received! Your signed paperwork is in, {{firstName}}`, fill);
           const bodyText = mailer.renderTemplate((tpl && tpl.body)
             || `Hi {{firstName}},\n\nThank you — we received everything! Your fully signed paperwork is attached to this email for your records. Keep it somewhere safe.\n\nWhere things stand:\n  ✔ Offer packet — signed and archived\n  • Background check — being ordered (nothing for you to do until you hear from the screening service)\n  • First-day details — coming from your manager soon\n\nWe're thrilled to have you on the team. See you soon!\n\nWarmly,\nThe MedWatchers HR Team`, fill);
@@ -216,18 +194,31 @@ async function processArchive(context, queueItem) {
             to, subject, body: bodyText,
             attachments: [{ name: `MedWatchers-signed-offer-${dateStamp}.pdf`, content: signedPdfBuffer }],
           });
-          if (result.sent) {
-            await monday.logAction(itemId,
-              stepHeader(9, '🎉 CONFIRMATION SENT')
-              + `WHAT HAPPENED: Confirmation sent to ${to} with their signed copy attached.\n\n`
-              + `NEXT: nothing — automatic. The candidate now has their own copy for their records.`
-            ).catch(() => {});
-          }
+          if (result.sent) confirmationLine = `Confirmation sent to ${to} ✓ (their signed copy attached).`;
         }
       }
     } catch (err) {
       logger.warn('archiveToBlob-congrats-email-failed', { itemId, error: err.message });
     }
+
+    // One event, one comment: signed + filed, the three gates, ADP readiness,
+    // the manual checklist, and the confirmation-email outcome — together.
+    await monday.logAction(itemId,
+      stepHeader(9, 'Signed & filed')
+      + `Signed and filed. The packet is attached to this card, archived (agreement ${agreementId}), and the background check is open.${adpLine}\n\n`
+      + `THE THREE GATES:\n${gateBoard}\n\n`
+      + `${confirmationLine}\n\n`
+      + `NEXT STEPS (manual):\n`
+      + `    1. Background check — order from vendor; result lands on the Background Checks board\n`
+      + `    2. ADP profile — create user account in ADP\n`
+      + `    3. IT provisioning — email credentials, create Slack account, set up device\n`
+      + `    4. TalentLMS enrollment — add to training courses\n`
+      + `    5. Active Employees — add hire to the roster\n\n`
+      + (formReceived
+        ? `Next → status moves to "${postSignStatus}". Flip this card to "${cfg.monday.statusLabels.complete}" when the background check clears.`
+        : `Next → status moves to "${postSignStatus}". When the candidate's form arrives it syncs itself and the card advances to "${cfg.monday.statusLabels.waitingBackground}". Flip to "${cfg.monday.statusLabels.complete}" when the background check clears.`),
+      `Signed PDF (agreement ${agreementId}) downloaded from Adobe Sign, archived to the pdf-archive container, links + relations written back.`
+    ).catch(err => logger.warn('archiveToBlob-notify-failed', { itemId, error: err.message }));
 
     logger.info('archiveToBlob-complete', { itemId, archiveUrl });
 

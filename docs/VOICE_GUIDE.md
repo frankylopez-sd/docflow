@@ -3,147 +3,107 @@
 Every card comment, email, and status label speaks with ONE voice. This file is the
 standard. If a message doesn't fit a skeleton below, the message is wrong — not the guide.
 
-Voice: Apple-simple. Short lines. Generous whitespace. One idea per line. No hedging,
-no filler, no re-explaining the whole flow in every comment. Name the specific fields
-and labels — never "the employer fields". Tense matches timing: past when done,
-present when running, `NEXT:` for what follows.
+Voice: Apple-simple. Quiet. Short lines. Generous whitespace. One idea per line.
+No form-filling labels, no hedging, no filler, no re-explaining the whole flow in
+every comment. Every word earns its place. Name the specific fields and labels —
+never "the employer fields". Tense matches timing: past when done, present when
+running, `Next →` for what follows.
 
 ## The step header (every HR-facing card comment opens with it)
 
-Every `logAction` comment starts with a uniform header locating the card in the
-10-step packet flow:
-
 ```
-▶ STEP X of 10 — SHORT STATE NAME
+▶ X of 10 · Sentence-case name
 ──────────────────────────────
-WHAT HAPPENED: one sentence, past/present tense matching timing.
-
-YOUR NEXT MOVE: what the HR person does now (labels quoted from config).
 ```
 
-- Machine-automatic steps replace `YOUR NEXT MOVE:` with
-  `NEXT: nothing — automatic. <what the machine does next>`.
-- Optionally end with `WHY THIS MATTERS: …` where the reason isn't obvious
-  (last-check gates, guards).
-- Error comments keep the SYSTEM:/ERROR:/FIX: skeleton under the header, with
-  the state name = the failing step (e.g. `▶ STEP 3 of 10 — ❌ LETTER FAILED`).
-- Guard/no-op comments (⚠️/ℹ️) keep `WHY:` + the way out, under a header that
-  shows the step the card is ACTUALLY at — not the step someone dragged to.
-- The state name line keeps the emoji lexicon, e.g. `▶ STEP 5 of 10 — 📦 PACKET BUILT`.
-- Live progress ticks (startProgress one-liners like `🛠️ 30s — …`) stay short,
-  NO header.
+- `▶ X of 10 · <name>` — no "STEP", no emoji in the header name, no ALL-CAPS.
+- The first line after the divider IS the event sentence. No `WHAT HAPPENED:` label —
+  just write the sentence.
+- Live progress ticks (startProgress one-liners like `🛠️ 30s — …`) stay short, NO header.
 
 **The 10 steps** (canonical packet flow):
 
 | Step | State | Who |
 |------|-------|-----|
 | 1 | Imported / Welcome — hire lands on the board | machine |
-| 2 | Hire Details — the 9 required fields (+ form sync / ADP fields) | person |
-| 3 | Letter Built — review the PDF | machine → person |
-| 4 | Package Approved — HR gate 1 | person |
-| 5 | Packet Built — Adobe agreement assembled | machine |
-| 6 | Ready to Send — the exact email preview | person |
+| 2 | Hire details — the 9 required fields (+ form sync / ADP fields) | person |
+| 3 | Letter built — review the PDF | machine → person |
+| 4 | Package approved — HR gate 1 | person |
+| 5 | Packet built — Adobe agreement assembled | machine |
+| 6 | Ready to send — the exact email preview | person |
 | 7 | Sent — the send button fired | machine |
 | 8 | Signing — out with the candidate | candidate |
-| 9 | Signed & Filed — archive, SharePoint, confirmations | machine |
+| 9 | Signed & filed — archive, SharePoint, confirmations | machine |
 | 10 | Done — manual next steps | person |
+
+## The full skeleton
+
+```
+▶ 6 of 10 · Ready to send
+──────────────────────────────
+The packet is built. Signing order: Francisco Lopez.
+Below is word-for-word what Francisco receives.
+
+<body / fenced email / checklist>
+
+Your move
+    ✓ Looks right → select "⑦ 📤 Send Package"
+    ✎ Something off → "✋ Revise" — fix the field, the letter rebuilds itself
+```
+
+## Endings — exactly one of two
+
+- **Human-action comments** end with a `Your move` block: the phrase on its own
+  line, then indented `✓` / `✎` / `→` options (one per line).
+- **Machine-automatic comments** end with a single line:
+  `Next → <what posts here next>`.
+
+## One event, one comment
+
+If two comments would fire back-to-back for one event, merge them. The single
+narrators:
+
+- **generatePDF** narrates building (the webhook posts no "building" note).
+- The letter-ready comment carries the five-point checklist AND the email
+  subject line in one post.
+- The step-6 preview opens with the packet-built line, then the fenced email,
+  then `Your move` — one comment for gate 2.
+- There is no "sending" post — the status column shows sending; the SENT
+  confirmation is the comment.
+- **archiveToBlob** posts ONE completion comment: signed + filed, the three
+  gates, ADP readiness, the manual checklist, and the confirmation-email
+  outcome (`Confirmation sent to X ✓` or `Confirmation email: not sent (mail
+  disarmed).`) together.
+- **atsSync** posts one one-line import comment (deduped on 'Imported from');
+  the welcome comment carries the field checklist and never repeats arrival.
 
 ## The email appears ONCE
 
-The full welcome-email body appears exactly once in a card's thread: the STEP 6
-"Ready to Send" preview. The STEP 7 sent confirmation never repeats the body —
-it says `The email you previewed at STEP 6 was sent verbatim.` plus the
-recipient and the HR reference links. Earlier steps may show the Subject line
+The full welcome-email body appears exactly once in a card's thread: the step 6
+"Ready to send" preview. The step 7 sent confirmation never repeats the body —
+it says `The email you previewed at step 6 was sent verbatim.` plus the
+recipient and the HR reference links. Earlier steps may show the subject line
 only. Two copies of the same email in one thread means one of them is drift.
 
 ## Message anatomy (card comments)
 
-Every comment has up to four parts, in this order:
+1. **Header** — `▶ X of 10 · Name` + divider.
+2. **Event sentence(s)** — what just happened, no label. An emoji from the
+   lexicon may lead a guard/error line (⚠️ ℹ️ ❌ ✋ 🛑).
+3. **Body** — the specifics. Exact field names, exact label text (always quoted
+   from config, never hard-coded), one idea per line. No markdown bold.
+4. **Ending** — `Your move` block or `Next →` line (terminal filing comments may
+   say `Next → nothing; …`).
+5. **Inside note** (optional 2nd arg to `logAction`) — the technical audit line
+   for IT. Never mixed into the HR-facing text.
 
-1. **Headline** — one emoji + one sentence stating what just happened or is happening.
-2. **Body** — the specifics. Exact field names, exact label text (always quoted from
-   config, never hard-coded), one idea per line.
-3. **`NEXT:`** — what happens now, and who does it (the machine or a person). Every
-   comment that isn't terminal ends with this line.
-4. **Inside note** (optional 2nd arg to `logAction`) — the technical audit line for IT.
-   Never mixed into the HR-facing text.
+## Error comments (precision beats elegance in failures)
 
-## The emoji lexicon (fixed — never improvise)
+Errors keep the SYSTEM:/ERROR:/FIX: skeleton under the new header style:
 
-| Emoji | Meaning | Example headline |
-|-------|---------|------------------|
-| 👋 | hire arrived | `👋 Jane is on the board.` |
-| 🧲 | imported from ATS | `🧲 Imported from RPH Hiring…` |
-| 🛠️ | building (first time) | `🛠️ Writing Jane's offer letter — about a minute.` |
-| 🔁 | rebuilding after an edit | `🔁 A field changed. Rebuilding the letter…` |
-| 📄 | letter ready for review | `📄 The offer letter is ready.` |
-| 📦 | packet built | `📦 The packet is built.` |
-| 📧 | email preview (draft, not sent) | `📧 Jane will receive this. Preview only — not sent.` |
-| 📤 | sending now | `📤 Sending now.` |
-| 📥 | form received | `📥 Welcome form received from Jane…` |
-| ✅ | step confirmed / completed | `✅ Approved. Building the signing packet…` |
-| 🎉 | celebration (signed, confirmed) | `🎉 Confirmation sent to jane@…` |
-| 🗂️ | filed to SharePoint | `🗂️ Signed packet copied to SharePoint…` |
-| 📋 | checklist | `📋 NEXT STEPS (manual):` |
-| ✋ | needs human input to proceed | `✋ Two fields are still empty:` |
-| ℹ️ | FYI / deliberate no-op | `ℹ️ Nothing to rebuild — …` |
-| ⚠️ | blocked or risky — human decision | `⚠️ Not re-sending — paperwork already complete.` |
-| ❌ | hard failure | `❌ Offer letter generation failed.` |
-| 🛑 | human stopped the flow | `🛑 Offer marked Denied…` |
-| 🚀 | downstream record started | `🚀 Onboarding started for Jane…` |
-
-## The label vocabulary (fixed — the only caps labels allowed)
-
-- `WHAT HAPPENED:` — the header's one-sentence event line
-- `YOUR NEXT MOVE:` — what the HR person does now (human steps)
-- `NEXT:` — what follows automatically (`NEXT: nothing — automatic. …` on machine steps)
-- `WHY THIS MATTERS:` — optional closing line when the reason isn't obvious
-- `WHY:` — the exact reason a guard fired (column ids allowed here)
-- `FIX:` — the exact way out of an error
-- `SYSTEM:` / `ERROR:` — error skeleton fields (see below)
-- `THE ORDER:` — the step sequence, only in guard messages that reset the user
-- `NEXT STEPS (manual):` — the post-Done checklist only
-
-Anything else in ALL CAPS is drift. Rewrite it into one of these.
-
-## Skeletons
-
-**Progress** (machine is working):
 ```
-🛠️ Writing Jane's offer letter — about a minute.
-```
-No NEXT line — the next comment IS the result.
-
-**Result** (machine finished):
-```
-📦 The packet is built. Signing order: Jane Doe.
-
-NEXT: read the email below. Looks right → select "⑦ 📤 Send Package" and it goes to Jane.
-Something off → "④ ✋ More Info Needed"; fix the field and the letter rebuilds itself.
-```
-
-**Needs input**:
-```
-✋ Two fields are still empty:
-    ADP Job Title
-    Start Date
-
-NEXT: fill them in — the letter builds the moment the last one lands.
-```
-
-**Guard / deliberate no-op** (never skip silently):
-```
-⚠️ Not re-sending — this hire's paperwork is already complete.
-
-WHY: status is "⑦ 🎉 Done" and the signed offer is archived. Approving again would
-email Jane a SECOND signing packet.
-
-NEXT: if you truly need to redo the offer, move Onboarding Status off "⑦ 🎉 Done"
-first, then ☑ Details Verified → review → approve.
-```
-
-**Error** (always this exact skeleton):
-```
+▶ 5 of 10 · Packet failed
+──────────────────────────────
 ❌ Sending for signature failed.
 
 SYSTEM: Adobe Sign
@@ -152,19 +112,29 @@ ERROR: <exact message, plus HTTP code / API body when present>
 FIX: <the specific way out>. (The system also retries automatically.)
 ```
 
-**Email preview** — the draft is FENCED so it can't be confused with instructions:
-```
-📧 Jane will receive this. Preview only — not sent.
+Guard/no-op comments (⚠️/ℹ️) keep `WHY:` + the way out, under a header that
+shows the step the card is ACTUALLY at — not the step someone dragged to.
+`THE ORDER:` may list the step sequence in guard messages that reset the user.
 
-— — — — — — — — — —
-Subject: …
+## The label vocabulary (the only caps labels allowed)
 
-…body…
-— — — — — — — — — —
+- `WHY:` — the exact reason a guard fired (column ids allowed here)
+- `FIX:` — the exact way out of an error
+- `SYSTEM:` / `ERROR:` — error skeleton fields
+- `THE ORDER:` — the step sequence, only in guard messages that reset the user
+- `THE THREE GATES:` — the post-sign scoreboard
+- `NEXT STEPS (manual):` — the completion checklist only
 
-NEXT: looks right → select "④ ✅ Package Approved". To change the wording, edit the
-"package" row on the Email Templates board.
-```
+Anything else in ALL CAPS is drift. `Your move` and `Next →` are sentence case.
+
+## Fixed needles (idempotency / dedupe markers — keep verbatim)
+
+- `Welcome form received` — formSync
+- `Welcome packet` — mondayWebhook welcome comment
+- `Can't build the offer letter` — mondayWebhook revise comment
+- `The letter builds right away` — generatePDF missing-fields comment
+- `archived (agreement ` — archiveToBlob completion comment
+- `Imported from` — atsSync hire-card comment
 
 ## Candidate emails (exactly two, ever)
 
